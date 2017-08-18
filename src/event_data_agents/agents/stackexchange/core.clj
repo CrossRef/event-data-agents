@@ -348,13 +348,13 @@
 
 (def main-all-sites-trigger
   (qt/build
-    (qt/with-identity (qt/key "stackexchange-all-sites"))
+    (qt/with-identity (qt/key "stackexchange-main-all-sites"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 0 0 */5 * ?"))))
 
 (def main-sites-from-artifact-trigger
   (qt/build
-    (qt/with-identity (qt/key "stackexchange-all-sites"))
+    (qt/with-identity (qt/key "stackexchange-main-sites-from-artifact"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 0 0 1 * ?"))))
 

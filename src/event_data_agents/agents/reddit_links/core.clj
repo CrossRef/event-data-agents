@@ -279,7 +279,7 @@
 
 (def main-trigger
   (qt/build
-    (qt/with-identity (qt/key "reddit-links"))
+    (qt/with-identity (qt/key "reddit-links-main"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 30 0/2 * * ?"))))
 

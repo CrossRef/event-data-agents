@@ -160,7 +160,7 @@
 
 (def main-trigger
   (qt/build
-    (qt/with-identity (qt/key "newsfeed"))
+    (qt/with-identity (qt/key "newsfeed-main"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 30 0/2 * * ?"))))
 

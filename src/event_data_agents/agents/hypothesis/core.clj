@@ -185,7 +185,7 @@
 
 (def main-trigger
   (qt/build
-    (qt/with-identity (qt/key "hypothesis"))
+    (qt/with-identity (qt/key "hypothesis-main"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 0 0/2 * * ?"))))
 

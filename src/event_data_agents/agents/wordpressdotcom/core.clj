@@ -182,7 +182,7 @@
 
 (def main-trigger
   (qt/build
-    (qt/with-identity (qt/key "wordpressdotcom"))
+    (qt/with-identity (qt/key "wordpressdotcom-main"))
     (qt/start-now)
     (qt/with-schedule (qc/cron-schedule "0 30 0 * * ?"))))
 
