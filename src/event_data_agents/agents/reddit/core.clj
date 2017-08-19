@@ -138,7 +138,8 @@
       (try-try-again
         {:sleep 30000 :tries 10}
         #(let [result (client/get url {:headers {"User-Agent" user-agent
-                                               "Authorization" (str "bearer " @reddit-token)}})]
+                                               "Authorization" (str "bearer " @reddit-token)}
+                                       :throw-exceptions false})]
           (log/info "Fetched" url)
 
            (evidence-log/log!

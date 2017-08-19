@@ -153,7 +153,8 @@
         #(let [result (client/get url {:timeout 60000
                                        :headers {"User-Agent" user-agent
                                                  ; Optimistically use token. If it doesn't work, retry in error handler.
-                                                 "Authorization" (str "bearer " @reddit-token)}})]
+                                                 "Authorization" (str "bearer " @reddit-token)}
+                                       :throw-exceptions false})]
           
           (log/info "Fetched" url)
 
