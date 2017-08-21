@@ -111,7 +111,7 @@
 
         (assoc base-record
           ; One page of actions.
-          :actions [actions]))
+          :pages [{:actions actions}]))
 
       ; e.g. com.rometools.rome.io.ParsingFeedException
       (catch Exception ex
