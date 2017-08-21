@@ -76,7 +76,7 @@
   [manifest evidence-record]
   (let [; Add a JWT so that the Percolator knows that the message is from us.
         with-jwt (assoc evidence-record
-                        :jwt (jwt/sign @jwt-verifier {:sub (:source-id manifest)}))
+                        :jwt (jwt/sign @jwt-verifier {"sub" (:source-id manifest)}))
         topic (:percolator-input-evidence-record-topic env)
         id (:id evidence-record)]
 

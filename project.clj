@@ -1,4 +1,4 @@
-(defproject event-data-agents "1.0.2"
+(defproject event-data-agents "1.0.3"
   :description "Crossref Event Data Agents"
   :url "http://eventdata.crossref.org"
   :license {:name "The MIT License (MIT)"
