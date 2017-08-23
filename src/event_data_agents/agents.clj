@@ -85,5 +85,5 @@
       (log/info "Running daemons for" (:agent-name manifest) "...")
       (.start (Thread. f)))
     (log/info "Done all daemons for" (:agent-name manifest) "."))
-  (log/info "Run all one-off Agent jobs now."))
+  (log/warn "Finished running daemons."))
 

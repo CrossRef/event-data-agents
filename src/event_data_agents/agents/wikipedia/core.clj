@@ -125,16 +125,23 @@
   "Subscribe to the WC Stream, put data in the input-stream-chan."
   []
 
-  (evidence-log/log! {
-    :i "a0028" :s agent-name :c "ingest" :f "start"})
-
 
   (log/info "Start ingest stream!")
   (loop []
-    (log/info "Starting...")
-    (ingest-into-channel @action-chan)
-    (log/error "Stopped!")
-    (Thread/sleep 1000)
+    (evidence-log/log! {
+      :i "a0028" :s agent-name :c "ingest" :f "start"})
+
+    (try
+      (log/info "Starting...")
+      (ingest-into-channel @action-chan)
+    (catch Exception ex (do
+      (log/error "Unhandled exception" (.getMessage ex))
+      (evidence-log/log! {
+        :i "a003e" :s agent-name :c "ingest" :f "error"})))
+    (finally
+      (log/error "Stopped!")
+      (Thread/sleep 1000)))
+
     (recur))
     (log/info "Stopped ingest stream."))
 
@@ -143,30 +150,42 @@
    put them on the input-package-channel."
   []
 
-  (evidence-log/log! {
-    :i "a0029" :s agent-name :c "process" :f "start"})
-
-
-  ; Take chunks of inputs, a few tweets per input bundle.
-  ; Gather then into a Page of actions.
-  (log/info "Waiting for chunks of actions...")
-  (let [channel @action-chan
-        ; We don't use any artifacts.
-        artifact-map {}]
-    (loop [actions (<!! channel)]
-      (log/info "Got a chunk of" (count actions) "actions")
+  (loop []
+    (try
 
       (evidence-log/log! {
-        :i "a0030" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
-      
-      (let [evidence-record (assoc 
-                              (util/build-evidence-record manifest artifact-map)
-                              :pages [{:actions actions}])]
+        :i "a0029" :s agent-name :c "process" :f "start"})
 
-        (util/send-evidence-record manifest evidence-record)
+      ; Take chunks of inputs, a few tweets per input bundle.
+      ; Gather then into a Page of actions.
+      (log/info "Waiting for chunks of actions...")
+      (let [channel @action-chan
+            ; We don't use any artifacts.
+            artifact-map {}]
+        (loop [actions (<!! channel)]
+          (log/info "Got a chunk of" (count actions) "actions")
 
-        (log/info "Sent a chunk of" (count actions) "actions"))
-      (recur (<!! channel)))))
+          (evidence-log/log! {
+            :i "a0030" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
+          
+          (let [evidence-record (assoc 
+                                  (util/build-evidence-record manifest artifact-map)
+                                  :pages [{:actions actions}])]
+
+            (util/send-evidence-record manifest evidence-record)
+
+            (log/info "Sent a chunk of" (count actions) "actions"))
+          (recur (<!! channel))))
+
+      (catch Exception ex (do
+        (log/error "Unhandled exception" (.getMessage ex))
+        (evidence-log/log! {
+          :i "a003f" :s agent-name :c "process" :f "error"})))
+      (finally
+        (log/error "Stopped!")
+        (Thread/sleep 1000)))
+
+      (recur)))
 
 (def manifest
   {:agent-name agent-name
