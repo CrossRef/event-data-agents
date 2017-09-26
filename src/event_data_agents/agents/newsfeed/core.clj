@@ -88,8 +88,7 @@
   "Get list of parsed Actions from the feed url. Return as an Evidence Record."
   [manifest artifact-map feed-url]
   (let [base-record (util/build-evidence-record manifest artifact-map)
-        evidence-record-id (:id base-record)
-        reader (new XmlReader (new URL feed-url))]
+        evidence-record-id (:id base-record)]
 
     (log/info "Retrieve latest from feed:" feed-url)
 
@@ -97,7 +96,8 @@
       {:i "a0009" :s agent-name :c "remote-newsfeed" :f "request" :u feed-url :r evidence-record-id})
 
     (try
-      (let [actions (actions-from-xml-reader evidence-record-id feed-url reader)]
+      (let [reader (new XmlReader (new URL feed-url))
+            actions (actions-from-xml-reader evidence-record-id feed-url reader)]
         
         ; Parse succeeded.
         (evidence-log/log!
