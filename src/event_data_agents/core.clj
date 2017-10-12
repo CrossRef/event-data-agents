@@ -28,9 +28,5 @@
       "start-schedule" (agents/start-schedule agent-names)
       "run-schedule-once" (agents/run-schedule-once agent-names)
       "run-daemons" (agents/run-daemons agent-names)
-      (log/error "Didn't recognise command" command)))
-    (System/exit 0))
-
-
-
-
+      (do (log/error "Didn't recognise command" command)
+          (System/exit 1)))))
