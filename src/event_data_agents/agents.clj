@@ -7,25 +7,17 @@
             [event-data-agents.agents.twitter.core :as twitter]
             [event-data-agents.agents.wikipedia.core :as wikipedia]
             [event-data-agents.agents.wordpressdotcom.core :as wordpressdotcom])
-  (:require [clojurewerkz.quartzite.triggers :as qt]
-            [clojure.tools.logging :as log]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.schedule.daily-interval :as daily]
-            [clojurewerkz.quartzite.schedule.calendar-interval :as cal]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.scheduler :as qs]
-            [clojurewerkz.quartzite.schedule.cron :as qc]))
+  (:require [overtone.at-at :as at-at]
+            [clj-time.core :as clj-time]
+            [clojure.tools.logging :as log]))
 
 ; An Agent should present its manifest as a hashmap with the following keys:
 ; :agent-name - The name of the Agent, for identification purposes.
 ; :source-id - The source ID for Events. Used to identify where the data came from, also for JWT auth.
 ; :license - A license URL.
 ; :source-token - The registered source token that identifies this Agent.
-; :schedule - Seq of tuples of Quartzite [job trigger]
+; :schedule - Seq of tuples of [function seconds-delay-between-runs]
 ; :runners - Seq of functions that should be run and kept running.
-
-; NB the Cron-like syntax for Quartz is documented here:
-; http://www.quartz-scheduler.org/api/2.2.1/org/quartz/CronExpression.html
 
 (def manifests
   {:hypothesis hypothesis/manifest
@@ -52,26 +44,32 @@
 
 (defn start-schedule
   "Run the schedule for the given string Agent names.
-   Quartz starts a daemon thread which will block exit."
-  [agent-names]
+   at-at starts a daemon thread which will block exit."
+  [schedule-pool agent-names]
   (log/info "Start scheduler...")
-  (let [schedule (-> (qs/initialize) qs/start)]
+    
     (doseq [manifest (manifests-for-names agent-names)]
       (log/info "Adding schedule for" (:agent-name manifest))
-      (doseq [[job trigger] (:schedule manifest)]
-        (log/info "Add schedule" job trigger)
-        (qs/schedule schedule job trigger))))
+      (doseq [[function delay-period] (:schedule manifest)]
+        (log/info "Add schedule" function "with delay" (str delay-period))
+        (at-at/interspaced
+          (clj-time/in-millis delay-period)
+          function schedule-pool)))
+
   (log/info "Finished setting up scheduler."))
 
 (defn run-schedule-once
   "Run the job that would have been scheduled for the given Agent names now, then exit."
   [agent-names]
   (log/info "Running one-off Agent schedule jobs now...")
+  
   (doseq [manifest (manifests-for-names agent-names)]
     (log/info "Running jobs for" (:agent-name manifest))
-    (doseq [[job trigger] (:schedule manifest)]
+    
+    (doseq [[function delay-period] (:schedule manifest)]
       (log/info "Running job for" (:agent-name manifest) "...")
-      (.execute ^org.quartz.Job (.newInstance (.getJobClass job)) nil))
+      (function))
+
     (log/info "Done all jobs for" (:agent-name manifest) "."))
   (log/info "Run all one-off Agent jobs now."))
 

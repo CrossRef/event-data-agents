@@ -1,7 +1,14 @@
 (ns event-data-agents.agents.reddit-links.core
+  "Take URL of every entry on a list of subreddits.
+
+  Schedule and checkpointing:
+  Continually loop over the subreddit list.
+  Check each subreddit no more than once per C."
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [event-data-agents.agents.reddit.core]
             [event-data-common.evidence-log :as evidence-log]
+            [event-data-common.url-cleanup :as url-cleanup]
             [crossref.util.doi :as cr-doi]
             [clojure.tools.logging :as log]
             [clojure.java.io :refer [reader]]
@@ -12,12 +19,7 @@
             [clj-http.client :as client]
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
-            [clj-time.format :as clj-time-format]
-
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
+            [clj-time.format :as clj-time-format])
   (:import [java.util UUID]
            [java.net URL]
            [org.apache.commons.codec.digest DigestUtils]
@@ -32,17 +34,6 @@
 (def agent-name "reddit-links-agent")
 (def source-id "reddit-links")
 (declare manifest)
-
-(defn remove-utm
-  "Remove tracking links, e.g. in http://www.npr.org/sections/13.7/2017/03/27/521620741/a-day-in-the-life-of-an-academic-mom?utm_source=facebook.com&utm_medium=social&utm_campaign=npr&utm_term=nprnews&utm_content=20170327"
-  [url]
-  (let [[base query-string] (.split url "\\?")
-        args (when query-string (.split query-string "&"))
-        filtered-args (when args (remove #(.startsWith % "utm") args))
-        combined-args (when filtered-args (clojure.string/join "&" filtered-args))]
-    (if (empty? combined-args)
-      base
-      (str base "?" combined-args))))
 
 (def date-format
   (:date-time-no-ms clj-time-format/formatters))
@@ -94,7 +85,7 @@
   (let [occurred-at-iso8601 (clj-time-format/unparse date-format (coerce/from-long (* 1000 (long (-> item :data :created_utc)))))
         link (-> item :data :url)
         unescaped-link (StringEscapeUtils/unescapeHtml4 link)
-        cleaned-link (remove-utm unescaped-link)
+        cleaned-link (url-cleanup/remove-tracking-params unescaped-link)
         host (try (.getHost (new URL unescaped-link)) (catch Exception e nil))]
 
     ; We only care about things that are links and that are links to external sites.
@@ -226,11 +217,29 @@
         pages (take-while (partial all-action-dates-after? date) all-pages)]
     pages))
 
+(defn check-subreddit
+  [subreddit artifact-map domain-set cutoff-date]
+   (let [base-record (util/build-evidence-record manifest artifact-map)
+        evidence-record-id (:id base-record)]
+
+    (log/info
+      "Evidence record:" evidence-record-id
+      "Query subreddit:" subreddit
+      "Cutoff date:" (str cutoff-date))
+
+    ; Need to realize the lazy sequence as we're stuffing it into an Evidence Record.
+    (let [pages (doall (fetch-parsed-pages-after evidence-record-id domain-set subreddit cutoff-date))
+          evidence-record (assoc base-record
+                            :extra {:cutoff-date (str cutoff-date) :queried-subreddit subreddit}
+                            :pages pages)]
+      (log/info "Sending evidence record...")
+      (util/send-evidence-record manifest evidence-record))))
+
+
 (defn main
   "Check all subreddits for unseen links."
   []
   (log/info "Start crawl all Domains on Reddit at" (str (clj-time/now)))
-
 
   (evidence-log/log! {
     :i "a0016" :s agent-name :c "scan" :f "start"})
@@ -242,52 +251,25 @@
 
         [subreddit-list-url subreddit-list] (artifact-map "subreddit-list")
         subreddits (set (clojure.string/split subreddit-list #"\n"))
-        num-subreddits (count subreddits)
 
-        counter (atom 0)
+        results (pmap (fn [subreddit]
+                        (checkpoint/run-checkpointed!
+                          ["reddit-links" "subreddit-query" subreddit]
+                          (clj-time/hours 1) ; Scan each subreddit at most once an hour.
+                          (clj-time/years 5) ; Don't page back past 5 years.
+                          #(check-subreddit subreddit artifact-map domain-set %)))
+                      subreddits)]
 
-        ; Take 48 hours worth of pages to make sure we cover everything. The Percolator will dedupe.
-        cutoff-date (-> 48 clj-time/hours clj-time/ago)]
-    
-    ; (reset! domain-set this-domain-set)
-    (doseq [subreddit subreddits]
-      (swap! counter inc)
-      (let [base-record (util/build-evidence-record manifest artifact-map)
-            evidence-record-id (:id base-record)]
+    (dorun results))
 
-        (log/info
-          "Evidence record:" evidence-record-id
-          "Query subreddit:" subreddit
-          "Progress:" @counter "/" num-subreddits " = " (int (* 100 (/ @counter num-subreddits))) "%")
-
-        ; Need to realize the lazy sequence as we're stuffing it into an Evidence Record.
-        (let [pages (doall (fetch-parsed-pages-after evidence-record-id domain-set subreddit cutoff-date))
-              evidence-record (assoc base-record
-                                :extra {:cutoff-date (str cutoff-date) :queried-subreddit subreddit}
-                                :pages pages)]
-          (log/info "Sending evidence record...")
-          (util/send-evidence-record manifest evidence-record))))
-
-  (evidence-log/log! {
-    :i "a0017" :s agent-name :c "scan" :f "finish"})
-  (log/info "Finished scan.")))
-
-(defjob main-job
-  [ctx]
-  (log/info "Running daily task...")
-  (main)
-  (log/info "Done daily task."))
-
-(def main-trigger
-  (qt/build
-    (qt/with-identity (qt/key "reddit-links-main"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 30 0/2 * * ?"))))
+    (evidence-log/log! {
+      :i "a0017" :s agent-name :c "scan" :f "finish"})
+    (log/info "Finished scan."))
 
 (def manifest
   {:agent-name agent-name
    :source-id source-id
    :license util/cc-0
    :source-token source-token
-   :schedule [[(qj/build (qj/of-type main-job)) main-trigger]]
+   :schedule [[main (clj-time/hours 1)]]
    :runners []})

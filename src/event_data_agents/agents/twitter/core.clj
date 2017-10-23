@@ -11,12 +11,7 @@
             [throttler.core :refer [throttle-fn]]
             [clojure.data.json :as json]
             [clojure.tools.logging :as log]
-            [clojure.java.io :as io]
-
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
+            [clojure.java.io :as io])
   (:import [java.util UUID]
            [org.apache.commons.codec.digest DigestUtils])
   (:gen-class))
@@ -328,21 +323,10 @@
       (recur (<!! channel)))))
 
 
-(defjob rules-job
-  [ctx]
-  (main-update-rules)
-  (log/info "Done daily task."))
-
-(def rules-trigger
-  (qt/build
-    (qt/with-identity (qt/key "twitter-rules"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 0 0 1 * ?"))))
-
 (def manifest
   {:agent-name agent-name
    :source-id source-id
    :source-token source-token
    :license util/cc-0
-   :schedule [[(qj/build (qj/of-type rules-job)) rules-trigger]]
+   :schedule [[main-update-rules (clj-time/days 20)]]
    :daemons [main-ingest-stream main-send]})

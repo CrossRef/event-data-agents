@@ -1,9 +1,21 @@
 (ns event-data-agents.agents.stackexchange.core
-  "StackExchange Agent has two modes:
-    1 - scan of interested stackexchange sites (from the artifact). Regularly run as we expect Events,
-    2 - retrieve all extant stackexchange sites and scan those (excluding those from the artifact). Irreguarly run as we don't expect to actually find anything."
+  "Scan a list of StackExchange sites, searching each for hyperlinked DOIs (not landing pages). 
+
+  Schedule and checkpointing:
+  Continually loop over the list of sites, searching each.
+  Check each site no more than once per C.
+
+  The Agent has two modes:
+    1 - Scan of interested stackexchange sites (from the artifact).
+        Regularly run as we expect Events.
+    
+    2 - Retrieve all extant stackexchange infrequently and scan those.
+        Checkpointing will ensure that sites aren't queried more often than neccesary."
+
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
+            [event-data-common.url-cleanup :as url-cleanup]
             [crossref.util.doi :as cr-doi]
             [clojure.tools.logging :as log]
             [clojure.java.io :refer [reader]]
@@ -14,12 +26,7 @@
             [clj-http.client :as client]
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
-            [clj-time.format :as clj-time-format]
-
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
+            [clj-time.format :as clj-time-format])
   (:import [java.util UUID]
            [org.apache.commons.codec.digest DigestUtils]
            [org.apache.commons.lang3 StringEscapeUtils])
@@ -30,7 +37,6 @@
 (def source-token "a8affc7d-9395-4f1f-a1fd-d00cfbdfa718")
 (def user-agent "CrossrefEventDataBot (eventdata@crossref.org)")
 
-(def version (System/getProperty "event-data-stackexchange-agent.version"))
 (def api-host "https://api.stackexchange.com")
 
 (declare manifest)
@@ -214,7 +220,7 @@
 
 ; https://api.stackexchange.com/docs/throttle
 ; Not entirely predictable. Go ultra low. 
-(def fetch-page-throttled (throttle-fn fetch-page 5 :hour))
+(def fetch-page-throttled (throttle-fn fetch-page 6 :hour))
 
 (defn fetch-pages
   "Lazy sequence of pages for the domain."
@@ -258,38 +264,52 @@
         [result]
         (lazy-seq (cons result (fetch-pages evidence-record-id site-info domain from-date (inc page-number))))))))
 
+(defn check-site
+  [site-info artifact-map cutoff-date]
+  (log/info "Query site" (:site_url site-info)
+            "Cutoff date:" (str cutoff-date))
+  
+  (let [base-record (util/build-evidence-record manifest artifact-map)
+        evidence-record-id (:id base-record)
+    
+        ; API takes timestamp.
+        from-date (int (/ (coerce/to-long cutoff-date) 1000))
+
+        ; Realize lazy seq to ensure it doesn't get realized inside JSON serialization buried
+        ; in Kafka Producer submission.
+        pages (doall (fetch-pages evidence-record-id site-info "doi.org" from-date))
+        evidence-record (assoc base-record
+                          :extra {:cutoff-date (str cutoff-date)
+                                  :queried-domain "doi.org"}
+                          :pages pages)]
+
+    (log/info "Sending evidence-record" (:id evidence-record) "...")
+
+    (util/send-evidence-record manifest evidence-record)
+
+    (log/info "Sent evidence-record" (:id evidence-record) ".")))
+
+
+
 (defn scan-sites
   "Check all mentioned sites for unseen links. Send an Evidence Record per site.
    Sites is a seq of site-infos with keys {:site_url :api_site_parameter}."
 
-  [artifact-map site-infos cutoff-date]
-  (let [site-counter (atom 0)
-        num-sites (count site-infos)]
+  [artifact-map site-infos]
 
-    (doseq [site-info site-infos]
-      (swap! site-counter inc)
-      (log/info "Query site" (:site_url site-info) @site-counter "/" num-sites " total progress " (int (* 100 (/ @site-counter num-sites))) "%")
-      (let [base-record (util/build-evidence-record manifest artifact-map)
-            evidence-record-id (:id base-record)
-            ; API takes timestamp.
-            from-date (int (/ (coerce/to-long cutoff-date) 1000))
+  ; No point in parallelism because we're rate limiting.
+  (doseq [site-info site-infos]
+    (checkpoint/run-checkpointed!
+      ["stackexchange" "site" "doi-search" (:site_url site-info)]
+      (clj-time/days 1) ; Check at most once a day per site.
+      (clj-time/years 5) ; Only go back 5 years max.
+      #(check-site site-info artifact-map %)))
 
-            ; Realize lazy seq to ensure it doesn't get realized inside JSON serialization buried in Kafka Producer submission.
-            pages (doall (fetch-pages evidence-record-id site-info "doi.org" from-date))
-            evidence-record (assoc base-record
-                              :extra {:cutoff-date (str cutoff-date) :queried-domain "doi.org"}
-                              :pages pages)]
-        
-        (log/info "Sending evidence-record" (:id evidence-record) "...")
-        
-        (util/send-evidence-record manifest evidence-record)
-
-        (log/info "Sent evidence-record" (:id evidence-record) "."))))
   (log/info "Finished scan."))
 
 
 (defn main-sites-from-artifact
-  "Check all sites for unseen links."
+  "Check sites in artifact."
   []
 
   (evidence-log/log! {
@@ -300,70 +320,34 @@
         [_ site-list] (artifact-map "stackexchange-sites")
         
         ; Sites artifact is {:site_url :api_site_parameter}
-        sites (json/read-str site-list :key-fn keyword)
-        cutoff-date (-> 40 clj-time/days clj-time/ago)]
+        sites (json/read-str site-list :key-fn keyword)]
 
-    (scan-sites artifact-map sites cutoff-date)
+    (scan-sites artifact-map sites)
 
     (evidence-log/log! {
-    :i "a001e" :s agent-name :c "scan-selected-sites" :f "finish"})))
+      :i "a001e" :s agent-name :c "scan-selected-sites" :f "finish"})))
 
 
 (defn main-all-sites
-  "Check all sites (except those in artifact, as we scan those on a more regular basis.)"
+  "Check all sites."
   []
   (evidence-log/log! {
     :i "a001f" :s agent-name :c "scan-all-sites" :f "start"})
 
   (log/info "Start crawl all Sites on stackexchange at" (str (clj-time/now)))
-  (let [artifact-map (util/fetch-artifact-map manifest ["stackexchange-sites"])
-        [_ site-list] (artifact-map "stackexchange-sites")
-        
-        ; Sites artifact is [{:site_url :api_site_parameter}]
-        artifact-sites (map #(select-keys % [:site_url :api_site_parameter]) (json/read-str site-list :key-fn keyword))
-        all-sites (map #(select-keys % [:site_url :api_site_parameter]) (fetch-sites))
+  (let [; Sites artifact is [{:site_url :api_site_parameter}]
+        all-sites (map #(select-keys % [:site_url :api_site_parameter]) (fetch-sites))]
 
-        sites-not-in-artifact (clojure.set/difference (set all-sites) (set artifact-sites))
-
-        num-sites (count sites-not-in-artifact)
-        site-counter (atom 0)
-
-        cutoff-date (-> 40 clj-time/days clj-time/ago)]
-
-    (log/info "Found" (count artifact-sites) "sites in artifact,"
-              (count all-sites) "possible available. Scanning difference" num-sites "sites")
-
-    (scan-sites artifact-map sites-not-in-artifact cutoff-date)
+    (scan-sites {} all-sites)
 
     (evidence-log/log! {
       :i "a0020" :s agent-name :c "scan-all-sites" :f "finish"})))
-
-(defjob main-all-sites-job
-  [ctx]
-  (main-all-sites))
-
-(defjob main-sites-from-artifact-job
-  [ctx]
-  (main-sites-from-artifact))
-
-(def main-all-sites-trigger
-  (qt/build
-    (qt/with-identity (qt/key "stackexchange-main-all-sites"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 0 0 */5 * ?"))))
-
-(def main-sites-from-artifact-trigger
-  (qt/build
-    (qt/with-identity (qt/key "stackexchange-main-sites-from-artifact"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 0 0 1 * ?"))))
 
 (def manifest
   {:agent-name agent-name
    :source-id source-id
    :license util/cc-0
    :source-token source-token
-   :schedule [[(qj/build (qj/of-type main-all-sites-job)) main-all-sites-trigger]
-              [(qj/build (qj/of-type main-sites-from-artifact-job)) main-sites-from-artifact-trigger]]
+   :schedule [[main-sites-from-artifact (clj-time/days 6)]
+              [main-all-sites (clj-time/days 30)]]
    :runners []})
-

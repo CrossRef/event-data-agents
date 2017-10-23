@@ -1,18 +1,21 @@
 (ns event-data-agents.agents.newsfeed.core
+  "Process every post that appears in a news feed.
+
+   Schedule and checkpointing:
+   Continually loop over the newsfeed list.
+   Check each newsfeed no more than once per C."
+
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
+            [event-data-common.url-cleanup :as url-cleanup]
             [clojure.tools.logging :as log]
             [clojure.java.io :as io]
             [config.core :refer [env]]
             [clj-time.core :as clj-time]
             [clj-time.coerce :as clj-time-coerce]
             [clj-time.format :as clj-time-format]
-            [throttler.core :refer [throttle-fn]]
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
-            
+            [throttler.core :refer [throttle-fn]])
   (:import [java.net URL]
            [java.io InputStreamReader]
            [com.rometools.rome.feed.synd SyndFeed SyndEntry SyndContent]
@@ -45,12 +48,18 @@
   (:date-time-no-ms clj-time-format/formatters))
 
 (defn parse-section
-  "Parse a SyndEntry into an Action. Discard the summary and use the url type only, the Percolator will follow the link."
+  "Parse a SyndEntry into an Action. Discard the summary and use the url type only.
+  The Percolator will follow the link to get the content."
   [feed-url fetch-date-str ^SyndEntry entry]
   (let [title (.getTitle entry)
+        
         ; Only 'link' is specified as being the URL, but feedburner includes the real URL only in the ID.
-        url (choose-best-link (.getLink entry) (.getUri entry))
-        ; Updated date is the date the blog is reported to have been published via the feed. Failing that, now.
+        ; Remove tracking parameters immediately so the action-id is as effective as possible at deduping.
+        url (url-cleanup/remove-tracking-params
+              (choose-best-link (.getLink entry) (.getUri entry)))
+        
+        ; Updated date is the date the blog is reported to have been published via the feed.
+        ; Failing that, now, the time we ingested this post URL.
         updated (try
                    (clj-time-coerce/from-date (or (.getUpdatedDate entry)
                                                   (.getPublishedDate entry)))
@@ -76,7 +85,12 @@
   (let [input (new SyndFeedInput)
         feed (.build input reader)
         entries (.getEntries feed)
-        parsed-entries (map (partial parse-section url (clj-time-format/unparse date-format (clj-time/now))) entries)]
+        parsed-entries (map
+                         (partial
+                          parse-section
+                          url
+                          (clj-time-format/unparse date-format (clj-time/now)))
+                         entries)]
   
     (evidence-log/log! {
       :i "a0008" :s agent-name :c "newsfeed" :f "parsed-entries"
@@ -129,7 +143,15 @@
           (log/info "Error parsing data from feed url:" feed-url)
           (.printStackTrace ex))))))
 
-(def evidence-record-for-feed-throttled (throttle-fn evidence-record-for-feed 20 :minute))
+(def check-every
+  "Visit every newsfeed at most this often."
+  (clj-time/hours 2))
+
+(defn check-newsfeed
+  [artifact-map newsfeed-url]
+  (log/info "Check newsfeed url" newsfeed-url)
+  (let [evidence-record (evidence-record-for-feed manifest artifact-map newsfeed-url)]
+    (util/send-evidence-record manifest evidence-record)))
 
 (defn main
   "Main function for Newsfeed Agent."
@@ -141,33 +163,33 @@
   (log/info "Start crawl all newsfeeds at" (str (clj-time/now)))
   (let [artifact-map (util/fetch-artifact-map manifest ["newsfeed-list"])
         newsfeed-list-content (-> artifact-map (get "newsfeed-list") second)
-        newsfeed-set (clojure.string/split newsfeed-list-content #"\n")]
+        newsfeed-set (clojure.string/split newsfeed-list-content #"\n")
 
-    (log/info "Got newsfeed-list artifact:" (-> artifact-map (get "newssfeed-list") first))
+        ; Check every newsfeed, checkpointing per newsfeed.
+        results (pmap
+                  #(checkpoint/run-checkpointed!
+                    ["newsfeed" "feed-check" %]
+                    (clj-time/hours 1)
+                    ; We discard the last-run date anyway, as newsfeeds
+                    ; only ever give one page of results.
+                    (clj-time/hours 1)
+                    (fn [_] (check-newsfeed artifact-map %)))
+                  newsfeed-set)]
+
+    (log/info "Got newsfeed-list artifact:" (-> artifact-map (get "newsfeed-list") first))
     
-    (doseq [this-newsfeed-url newsfeed-set]
-       (log/info "Check newsfeed url" this-newsfeed-url)
-       (let [evidence-record (evidence-record-for-feed-throttled manifest artifact-map this-newsfeed-url)]
-          (util/send-evidence-record manifest evidence-record))))
-  (evidence-log/log! {:i "a000d" :s agent-name :c "scan" :f "finish"})
-  (log/info "Finished scan."))
-
-(defjob main-job
-  [ctx]
-  (log/info "Running daily task...")
-  (main)
-  (log/info "Done daily task."))
-
-(def main-trigger
-  (qt/build
-    (qt/with-identity (qt/key "newsfeed-main"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 30 0/2 * * ?"))))
+    (dorun results)
+    
+    (evidence-log/log! {:i "a000d" :s agent-name :c "scan" :f "finish"})
+    
+    (log/info "Finished scan.")))
 
 (def manifest
   {:agent-name agent-name
    :source-id source-id
    :license util/cc-0
    :source-token source-token
-   :schedule [[(qj/build (qj/of-type main-job)) main-trigger]]})
+   ; Pause 30 minutes between scans to ensure we don't get stuck in a tight loop.
+   ; Each newsfeed is individually checkpointed, so no danger in this being too low.
+   :schedule [[main (clj-time/minutes 30)]]})
 

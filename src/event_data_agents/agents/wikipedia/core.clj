@@ -12,7 +12,8 @@
             [throttler.core :refer [throttle-fn]]
             [clj-time.coerce :as clj-time-coerce]
             [clj-time.format :as clj-time-format]
-            [robert.bruce :refer [try-try-again]])
+            [robert.bruce :refer [try-try-again]]
+            [overtone.at-at :as at-at])
   (:import [java.net URLEncoder]
            [java.util UUID]
            [org.apache.commons.codec.digest DigestUtils])
@@ -30,6 +31,10 @@
 
 (def action-input-buffer 1000000)
 (def action-chan (delay (chan action-input-buffer (partition-all action-chunk-size))))
+
+; This contains the startup time to begin with.
+; Allows us to measure a timeout for the first event.
+(def last-event-timestamp (atom (clj-time/now)))
 
 (declare manifest)
 
@@ -121,6 +126,23 @@
 
       (.printStackTrace ex))))
 
+(def watchdog-timeout
+  (clj-time/minutes 1))
+
+(defn main-watchdog
+  "Keep an eye on the most recent activity, bomb out if nothing happened."
+  []
+  (log/info "Start watchdog")
+  (let [schedule-pool (at-at/mk-pool)]
+  (at-at/every 10000 (fn []
+    (log/info "Check watchdog...")
+    (when (clj-time/before?
+                     @last-event-timestamp
+                     (clj-time/ago watchdog-timeout))
+      (log/error "Input timed out! Last timeout was at" (str @last-event-timestamp) "ago, longer than" (str watchdog-timeout))
+      (System/exit 1)))
+    schedule-pool)))
+
 (defn main-ingest-stream
   "Subscribe to the WC Stream, put data in the input-stream-chan."
   []
@@ -193,5 +215,5 @@
    :license util/cc-0
    :source-token source-token
    :schedule []
-   :daemons [main-ingest-stream main-send]})
+   :daemons [main-ingest-stream main-watchdog main-send]})
 

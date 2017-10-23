@@ -1,5 +1,11 @@
 (ns event-data-agents.agents.wordpressdotcom.core
+  "Search the Wordpress.com API for every domain.
+
+   Schedule and checkpointing:
+   Continually loop over the domain list.
+   Search for each domain no more than once per C."
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [clojure.tools.logging :as log]
             [clj-time.core :as clj-time]
             [clj-time.format :as clj-time-format]
@@ -8,12 +14,7 @@
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
             [clj-http.client :as client]
-            [clojure.data.json :as json]
-
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
+            [clojure.data.json :as json])
   (:import [java.util UUID]
            [org.apache.commons.codec.digest DigestUtils]
            [org.apache.commons.lang3 StringEscapeUtils])
@@ -134,6 +135,24 @@
       parse-page
       (->> domain (fetch-pages evidence-record-id) stop-at-dupe (take max-pages)))))
 
+(defn check-domain
+  [domain artifact-map cutoff-date]
+
+  (log/info "Query for domain:" domain
+            "Cutoff-date:" (str cutoff-date))
+
+  (let [base-record (util/build-evidence-record manifest artifact-map)
+        evidence-record-id (:id base-record)
+        
+        pages (doall (fetch-parsed-pages-after evidence-record-id cutoff-date domain))
+        evidence-record (assoc base-record
+                               :extra {:cutoff-date (clj-time-format/unparse date-format cutoff-date)
+                                       :queried-domain domain}
+                               :pages pages)]
+    (log/info "Sending package...")
+    (util/send-evidence-record manifest evidence-record)
+    (log/info "Sent package.")))
+
 (defn main
   "Check all domains for unseen links."
   []
@@ -146,46 +165,20 @@
         [domain-list-url domain-list] (artifact-map "domain-list")
         domains (clojure.string/split domain-list #"\n")
 
-        num-domains (count domains)
-        counter (atom 0)
-        
-        ; Take 48 hours worth of pages to make sure we cover everything. The Percolator will dedupe.  
-        cutoff-date (-> 48 clj-time/hours clj-time/ago)]
+        num-domains (count domains)]
+    
     (doseq [domain domains]
-      (swap! counter inc)
-      (log/info "Query for domain:" domain
-                 "Progress" @counter "/" num-domains " = " (int (* 100 (/ @counter num-domains))) "%")
 
-      (let [base-record (util/build-evidence-record manifest artifact-map)
-            evidence-record-id (:id base-record)
-            
-            ; API takes timestamp.
-            pages (doall (fetch-parsed-pages-after evidence-record-id cutoff-date domain))
-            evidence-record (assoc base-record
-                                   :extra {:cutoff-date (clj-time-format/unparse date-format cutoff-date)
-                                           :queried-domain domain}
-                                   :pages pages)]
-        (log/info "Sending package...")
-        (util/send-evidence-record manifest evidence-record)
-        (log/info "Sent package."))))
+      (checkpoint/run-checkpointed!
+        ["wordpressdotcom" "domain-scan" domain]
+        (clj-time/days 1) ; Scan at most once per day per domain.
+        (clj-time/years 10) ; Scan back no further than 10 years.
+        #(check-domain domain artifact-map %))))
 
   (evidence-log/log! {
     :i "a0032" :s agent-name :c "scan-all-sites" :f "finish"})
 
   (log/info "Finished scan."))
-
-(defjob main-job
-  [ctx]
-  (log/info "Running daily task...")
-  (main)
-  (log/info "Done daily task."))
-
-(def main-trigger
-  (qt/build
-    (qt/with-identity (qt/key "wordpressdotcom-main"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 30 0 * * ?"))))
-
 
 
 (def manifest
@@ -193,5 +186,5 @@
    :source-id source-id
    :source-token source-token
    :license util/cc-0
-   :schedule [[(qj/build (qj/of-type main-job)) main-trigger]]
+   :schedule [[main (clj-time/hours 1)]]
    :runners []})

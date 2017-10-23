@@ -1,15 +1,14 @@
-(defproject event-data-agents "1.0.8"
+(defproject event-data-agents "1.1.0"
   :description "Crossref Event Data Agents"
   :url "http://eventdata.crossref.org"
   :license {:name "The MIT License (MIT)"
             :url "https://opensource.org/licenses/MIT"}
   :dependencies [[clj-http "2.3.0"]
                  [clj-time "0.12.2"]
-                 [clojurewerkz/quartzite "2.0.0"]
                  [com.rometools/rome "1.6.1"]
                  [commons-codec/commons-codec "1.10"]
                  [crossref-util "0.1.10"]
-                 [event-data-common "0.1.36"]
+                 [event-data-common "0.1.38"]
                  [org.apache.commons/commons-lang3 "3.5"]
                  [org.apache.httpcomponents/httpclient "4.5.3"]
                  [org.apache.kafka/kafka-clients "0.10.2.0"]

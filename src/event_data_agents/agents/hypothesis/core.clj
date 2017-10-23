@@ -1,5 +1,10 @@
 (ns event-data-agents.agents.hypothesis.core
+  "Process every Hypothes.is annotation.
+
+   Schedule and checkpointing:
+   Connect to Hypothes.is API every S hours and get all results since the last run."
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [crossref.util.doi :as cr-doi]
             [clojure.tools.logging :as log]
@@ -12,11 +17,7 @@
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
             [clj-time.format :as clj-time-format]
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
-  (:gen-class))
+  (:gen-class)))
 
 (def agent-name "hypothesis-agent")
 (def source-token "8075957f-e0da-405f-9eee-7f35519d7c4c")
@@ -35,7 +36,7 @@
   ; Return two Actions with different observation types:
   ; - one that says "this Annotation is about this DOI"
   ; - another that says "this Annotation has this text, which may contain DOIs"
-  ; Of course, both or neither may match to zero, one or more matches.
+  ; Both or neither may match to zero, one or more matches.
   (let [occurred-at-iso8601 (clj-time-format/unparse date-format (coerce/from-string (:updated item)))]
         
     ; ID is legacy from first version where there was only one kind of action per annotation.
@@ -158,15 +159,13 @@
   (let [pages (fetch-evidence-record-pages)]
     (take-while (partial all-action-dates-after? date) pages)))
 
-(defn main
-  "Main function for Hypothesis agent."
-  []
-  (log/info "Start scan all hypothesis at" (str (clj-time/now)))
-  
+(defn scan
+  [cutoff-date]
+  (log/info "Start scan all hypothesis at" (str (clj-time/now)) "with cutoff date:" (str cutoff-date))
+
   (evidence-log/log! {:i "a0006" :s agent-name :c "scan" :f "start"})
 
-  (let [counter (atom 0)
-        cutoff-date (-> 48 clj-time/hours clj-time/ago)
+  (let [checkpoint-id ["hypothesis" "checkpoint-scan"]
         evidence-records (fetch-parsed-evidence-record-pages-after cutoff-date)]
 
     (doseq [evidence-record evidence-records]
@@ -177,22 +176,20 @@
 
   (log/info "Finished scan."))
 
-(defjob main-job
-  [ctx]
-  (log/info "Running daily task...")
-  (main)
-  (log/info "Done daily task."))
-
-(def main-trigger
-  (qt/build
-    (qt/with-identity (qt/key "hypothesis-main"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 0 0/2 * * ?"))))
+(defn main
+  "Main function for Hypothesis agent."
+  []
+  (checkpoint/run-checkpointed!
+    ["hypothesis" "all-scan"]
+    (clj-time/hours 2) ; Maximum of once every 2 hours.
+    (clj-time/years 5) ; Look back at most 5 years.
+    scan))
 
 (def manifest
   {:agent-name agent-name
    :source-id "hypothesis"
    :license util/cc-0
    :source-token source-token
-   :schedule [[(qj/build (qj/of-type main-job)) main-trigger]]
+   ; No need to leave less than an hour between scans.
+   :schedule [[main (clj-time/hours 1)]]
    :runners []})

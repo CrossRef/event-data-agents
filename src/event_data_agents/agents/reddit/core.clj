@@ -1,6 +1,13 @@
 (ns event-data-agents.agents.reddit.core
+  "Query Reddit for posts that mention every domain.
+
+  Schedule and checkpointing:
+  Continually loop over the domain list.
+  Check for each domain no more than once per C."
   (:require [event-data-agents.util :as util]
+            [event-data-agents.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
+            [event-data-common.url-cleanup :as url-cleanup]
             [crossref.util.doi :as cr-doi]
             [clojure.tools.logging :as log]
             [clojure.java.io :refer [reader]]
@@ -11,13 +18,8 @@
             [clj-http.client :as client]
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
-            [clj-time.format :as clj-time-format]
-            [clojurewerkz.quartzite.triggers :as qt]
-            [clojurewerkz.quartzite.jobs :as qj]
-            [clojurewerkz.quartzite.jobs :refer [defjob]]
-            [clojurewerkz.quartzite.schedule.cron :as qc])
-  (:import [java.util UUID]
-           [org.apache.commons.codec.digest DigestUtils])
+            [clj-time.format :as clj-time-format])
+  (:import [org.apache.commons.codec.digest DigestUtils])
   (:gen-class))
 
 (def agent-name "reddit-agent")
@@ -28,7 +30,6 @@
   "HTTP User Agent. A bit more Reddit-specific detail added."
   "CrossrefEventDataBot (eventdata@crossref.org) (by /u/crossref-bot labs@crossref.org)")
 
-(def version (System/getProperty "event-data-reddit-agent.version"))
 (declare manifest)
 
 (def date-format
@@ -90,7 +91,12 @@
      :url (str "https://reddit.com" (-> item :data :permalink))
      :relation-type-id "discusses"
      :occurred-at occurred-at-iso8601
-     :observations [{:type :url :input-url (-> item :data :url)}]
+     :observations [{:type :url
+                     :input-url (-> item
+                                    :data
+                                    :url
+                                    ; Remove tracking parameters at this point.
+                                    url-cleanup/remove-tracking-params)}]
      :extra {
       :subreddit (-> item :data :subreddit)}
      :subj {
@@ -183,7 +189,7 @@
         (log/error "Exception:" ex)
         {:url url :actions [] :extra {:after nil :before nil :error "Failed to retrieve page"}})))))
 
-
+; We still want to throttle access to the Reddit API.
 (def fetch-page-throttled (throttle-fn fetch-page 20 :minute))
 
 (defn fetch-pages
@@ -212,6 +218,23 @@
   (let [pages (fetch-pages evidence-record-id domain)]
     (take-while (partial all-action-dates-after? date) pages)))
 
+(defn check-domain
+  [domain artifact-map cutoff-date]
+  (let [base-record (util/build-evidence-record manifest artifact-map)
+        evidence-record-id (:id base-record)]
+
+    (log/info "Evidence record:" evidence-record-id
+              "Domain:" domain
+              "Cutoff date:" (str cutoff-date))
+
+    (let [pages (fetch-parsed-pages-after evidence-record-id domain cutoff-date)
+          evidence-record (assoc base-record
+                            :extra {:cutoff-date (str cutoff-date) :queried-domain domain}
+                            :pages pages)]
+      
+      (log/info "Sending package...")
+      (util/send-evidence-record manifest evidence-record))))
+
 (defn main
   "Check all domains for unseen links."
   []
@@ -227,48 +250,26 @@
 
         ; Take 5 hours worth of pages to make sure we cover everything. The Percolator will dedupe.
         num-domains (count domains)
-        counter (atom 0)
-        cutoff-date (->  12  clj-time/hours clj-time/ago)]
+        
+        results (pmap (fn [domain]
+                        (checkpoint/run-checkpointed!
+                          ["reddit" "domain-query" domain]
+                          (clj-time/hours 1) ; Do each search at most every hour.
+                          (clj-time/years 5) ; Don't page back past 5 years.
+                          #(check-domain domain artifact-map %)))
+                      domains)]
 
-    ; A new Evidence Record for each domain.
-    (doseq [domain domains]
-      ; (swap! counter inc)
-      (let [base-record (util/build-evidence-record manifest artifact-map)
-            evidence-record-id (:id base-record)]
-
-        (log/info "Evidence record:" evidence-record-id
-                  "Domain:" domain
-                  "Progress:" @counter "/" num-domains " = " (int (* 100 (/ @counter num-domains))) "%")
-        (let [pages (fetch-parsed-pages-after evidence-record-id domain cutoff-date)
-              evidence-record (assoc base-record
-                                :extra {:cutoff-date (str cutoff-date) :queried-domain domain}
-                                :pages pages)]
-          
-          (log/info "Sending package...")
-          (util/send-evidence-record manifest evidence-record)))))
+    (dorun results))
 
   (evidence-log/log! {
     :i "a0012" :s agent-name :c "scan" :f "finish"})
   
   (log/info "Finished scan."))
 
-
-(defjob main-job
-  [ctx]
-  (log/info "Running daily task...")
-  (main)
-  (log/info "Done daily task."))
-
-(def main-trigger
-  (qt/build
-    (qt/with-identity (qt/key "reddit-main"))
-    (qt/start-now)
-    (qt/with-schedule (qc/cron-schedule "0 30 0/2 * * ?"))))
-
 (def manifest
   {:agent-name agent-name
    :source-id source-id
    :license util/cc-0
    :source-token source-token
-   :schedule [[(qj/build (qj/of-type main-job)) main-trigger]]
+   :schedule [[main (clj-time/hours 1)]]
    :runners []})
