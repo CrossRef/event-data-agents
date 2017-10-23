@@ -127,7 +127,7 @@
       (.printStackTrace ex))))
 
 (def watchdog-timeout
-  (clj-time/minutes 1))
+  (clj-time/minutes 5))
 
 (defn main-watchdog
   "Keep an eye on the most recent activity, bomb out if nothing happened."
@@ -139,7 +139,7 @@
     (when (clj-time/before?
                      @last-event-timestamp
                      (clj-time/ago watchdog-timeout))
-      (log/error "Input timed out! Last timeout was at" (str @last-event-timestamp) "ago, longer than" (str watchdog-timeout))
+      (log/error "Input timed out! Last timeout was at" (str @last-event-timestamp) ", longer than" (str watchdog-timeout) "ago")
       (System/exit 1)))
     schedule-pool)))
 
