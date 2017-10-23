@@ -76,7 +76,6 @@
      :observations [{:type :content-url :input-url url :sensitive true}]
      :extra {:feed-url feed-url}
      :subj {
-      :type "post-weblog"
       ; Title appears as CDATA containing an HTML encoded string (different to XML encoded!) 
       :title (StringEscapeUtils/unescapeHtml4 title)}}))
 
