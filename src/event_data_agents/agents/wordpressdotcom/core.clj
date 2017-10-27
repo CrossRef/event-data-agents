@@ -133,7 +133,7 @@
     date
     (map
       parse-page
-      (->> domain (fetch-pages evidence-record-id) stop-at-dupe (take max-pages)))))
+      (->> domain (fetch-pages evidence-record-id) (take max-pages) stop-at-dupe))))
 
 (defn check-domain
   [domain artifact-map cutoff-date]
