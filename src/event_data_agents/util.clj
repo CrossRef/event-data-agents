@@ -74,29 +74,33 @@
 (defn send-evidence-record
   "Send an Evidence Record into the Kafka queue."
   [manifest evidence-record]
-  (let [; Add a JWT so that the Percolator knows that the message is from us.
-        with-jwt (assoc evidence-record
-                        :jwt (jwt/sign @jwt-verifier {"sub" (:source-id manifest)}))
-        topic (:percolator-input-evidence-record-topic env)
-        id (:id evidence-record)]
 
-    (evidence-log/log! {
-      :i "a0001" :s (:agent-name manifest) :c "evidence" :f "send" :r id})
+  ; Agents might send nil or empty evidence records (e.g. Newsfeed on an error).
+  ; Guarding here gives broadest protection.
+  (when (not-empty evidence-record)
+    (let [; Add a JWT so that the Percolator knows that the message is from us.
+          with-jwt (assoc evidence-record
+                          :jwt (jwt/sign @jwt-verifier {"sub" (:source-id manifest)}))
+          topic (:percolator-input-evidence-record-topic env)
+          id (:id evidence-record)]
 
-    (log/info "Send" (:id evidence-record) "to" topic)
-    (try 
-      (let [result (.send @kafka-producer (ProducerRecord. topic
-                                           id
-                                           (json/write-str with-jwt)))]
+      (evidence-log/log! {
+        :i "a0001" :s (:agent-name manifest) :c "evidence" :f "send" :r id})
 
-        ; Wait for the future, so to speak.
-        (.get result))
+      (log/info "Send" (:id evidence-record) "to" topic)
+      (try 
+        (let [result (.send @kafka-producer (ProducerRecord. topic
+                                             id
+                                             (json/write-str with-jwt)))]
 
-      (catch java.util.concurrent.ExecutionException ex
-        (do (log/error "Failed to send Evidence Record to Kafka:" id)
-            ; Of course if Kafka is down, Evidence Logging may also fail. 
-            (evidence-log/log! {
-              :i "a0040" :s (:agent-name manifest) :c "evidence" :f "send-error" :r id}))))))
+          ; Wait for the future, so to speak.
+          (.get result))
+
+        (catch java.util.concurrent.ExecutionException ex
+          (do (log/error "Failed to send Evidence Record to Kafka:" id)
+              ; Of course if Kafka is down, Evidence Logging may also fail. 
+              (evidence-log/log! {
+                :i "a0040" :s (:agent-name manifest) :c "evidence" :f "send-error" :r id})))))))
 
 
 (defn fetch-artifact-map
