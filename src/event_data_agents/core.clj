@@ -1,5 +1,6 @@
 (ns event-data-agents.core
   (:require [event-data-agents.agents :as agents]
+            [event-data-common.core :as common]
             [clojure.tools.logging :as log]
             [overtone.at-at :as at-at])
   (:gen-class))
@@ -18,6 +19,8 @@
 
 (defn -main
   [& args]
+
+  (common/init)
 
   (setup-thread-handler)
   ; Always install a heartbeat.
