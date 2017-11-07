@@ -127,7 +127,7 @@
       (.printStackTrace ex))))
 
 (def watchdog-timeout
-  (clj-time/minutes 5))
+  (clj-time/minutes 2))
 
 (defn main-watchdog
   "Keep an eye on the most recent activity, bomb out if nothing happened."
