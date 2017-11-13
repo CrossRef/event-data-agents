@@ -1,4 +1,4 @@
-(defproject event-data-agents "1.1.5"
+(defproject event-data-agents "1.1.6"
   :description "Crossref Event Data Agents"
   :url "http://eventdata.crossref.org"
   :license {:name "The MIT License (MIT)"
@@ -26,7 +26,7 @@
                  [yogthos/config "0.8"]
                  [overtone/at-at "1.2.0"]
                  [twitter-api "1.8.0"]]
-  :jvm-opts ["-Duser.timezone=UTC" "-Xmx2G"]
+  :jvm-opts ["-Duser.timezone=UTC" "-Xmx3G"]
   :main ^:skip-aot event-data-agents.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})
