@@ -139,8 +139,7 @@
              :u feed-url
              :r evidence-record-id})
 
-          (log/info "Error parsing data from feed url:" feed-url)
-          (.printStackTrace ex))))))
+          (log/info "Error parsing data from feed url:" feed-url))))))
 
 (def check-every
   "Visit every newsfeed at most this often."
