@@ -1,4 +1,4 @@
-(defproject event-data-agents "1.1.6"
+(defproject event-data-agents "1.1.7"
   :description "Crossref Event Data Agents"
   :url "http://eventdata.crossref.org"
   :license {:name "The MIT License (MIT)"
@@ -8,7 +8,7 @@
                  [com.rometools/rome "1.6.1"]
                  [commons-codec/commons-codec "1.10"]
                  [crossref-util "0.1.10"]
-                 [event-data-common "0.1.39"]
+                 [event-data-common "0.1.41"]
                  [org.apache.commons/commons-lang3 "3.5"]
                  [org.apache.httpcomponents/httpclient "4.5.3"]
                  [org.apache.kafka/kafka-clients "0.10.2.0"]
