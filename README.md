@@ -28,6 +28,7 @@ Schedule
  - reddit-links
  - stackexchange
  - twitter (update rules on schedule)
+ - carberry (FOR TESTING ONLY!)
 
 Daemon
 

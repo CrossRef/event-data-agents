@@ -6,7 +6,8 @@
             [event-data-agents.agents.stackexchange.core :as stackexchange]
             [event-data-agents.agents.twitter.core :as twitter]
             [event-data-agents.agents.wikipedia.core :as wikipedia]
-            [event-data-agents.agents.wordpressdotcom.core :as wordpressdotcom])
+            [event-data-agents.agents.wordpressdotcom.core :as wordpressdotcom]
+            [event-data-agents.agents.carberry.core :as carberry])
   (:require [overtone.at-at :as at-at]
             [clj-time.core :as clj-time]
             [clojure.tools.logging :as log]))
@@ -27,7 +28,8 @@
    :stackexchange stackexchange/manifest
    :twitter twitter/manifest
    :wikipedia wikipedia/manifest
-   :wordpressdotcom wordpressdotcom/manifest})
+   :wordpressdotcom wordpressdotcom/manifest
+   :carberry carberry/manifest})
 
 (defn manifests-for-names
   "Retrieve the manifests for the Agent names.
