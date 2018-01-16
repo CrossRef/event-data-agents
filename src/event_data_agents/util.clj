@@ -11,7 +11,7 @@
             [event-data-common.backoff :as backoff]
             [event-data-common.evidence-log :as evidence-log]
             [clojure.core.async :refer [go-loop thread buffer chan <!! >!! >! <!]])
-  
+
   (:import [org.apache.kafka.clients.producer KafkaProducer Producer ProducerRecord]
            [java.util UUID])
   (:gen-class))
@@ -32,12 +32,12 @@
 
 (def kafka-producer
   (delay
-    (KafkaProducer.
-      {"bootstrap.servers" (:global-kafka-bootstrap-servers env)
-       "acks" "all"
-       "retries" (int 5)
-       "key.serializer" "org.apache.kafka.common.serialization.StringSerializer"
-       "value.serializer" "org.apache.kafka.common.serialization.StringSerializer"})))
+   (KafkaProducer.
+    {"bootstrap.servers" (:global-kafka-bootstrap-servers env)
+     "acks" "all"
+     "retries" (int 5)
+     "key.serializer" "org.apache.kafka.common.serialization.StringSerializer"
+     "value.serializer" "org.apache.kafka.common.serialization.StringSerializer"})))
 
 (def date-format
   (clj-time-format/formatters :basic-date))
@@ -50,26 +50,26 @@
   "Generate a standard base Evidence Record. Generate an ID based on agent and timestamp.
    Supply Agent Manifest and an Artifact Map."
   ([manifest artifacts extra]
-    (merge extra (build-evidence-record manifest artifacts)))
+   (merge extra (build-evidence-record manifest artifacts)))
   ([manifest artifacts]
-    (let [now (clj-time/now)
-          source-id (:source-id manifest)
-          id (str
-               (clj-time-format/unparse date-format now)
-               "-" source-id "-"
-               (UUID/randomUUID))
-          now-str (str now)]
-      {:id id
-       :source-id (:source-id manifest)
-       :source-token (:source-token manifest)
-       :timestamp now-str
-  
+   (let [now (clj-time/now)
+         source-id (:source-id manifest)
+         id (str
+             (clj-time-format/unparse date-format now)
+             "-" source-id "-"
+             (UUID/randomUUID))
+         now-str (str now)]
+     {:id id
+      :source-id (:source-id manifest)
+      :source-token (:source-token manifest)
+      :timestamp now-str
+
        ; Transform {artifact-name [version-url text-content]}
        ; into {artifact-name version-url}
-       :artifacts (into {} (map #(vector (first %) (-> % second first)) artifacts))
-       :agent {:version version
-               :name (:agent-name manifest)}
-       :license (:license manifest)})))
+      :artifacts (into {} (map #(vector (first %) (-> % second first)) artifacts))
+      :agent {:version version
+              :name (:agent-name manifest)}
+      :license (:license manifest)})))
 
 (defn send-evidence-record
   "Send an Evidence Record into the Kafka queue."
@@ -84,14 +84,13 @@
           topic (:percolator-input-evidence-record-topic env)
           id (:id evidence-record)]
 
-      (evidence-log/log! {
-        :i "a0001" :s (:agent-name manifest) :c "evidence" :f "send" :r id})
+      (evidence-log/log! {:i "a0001" :s (:agent-name manifest) :c "evidence" :f "send" :r id})
 
       (log/info "Send" (:id evidence-record) "to" topic)
-      (try 
+      (try
         (let [result (.send @kafka-producer (ProducerRecord. topic
-                                             id
-                                             (json/write-str with-jwt)))]
+                                                             id
+                                                             (json/write-str with-jwt)))]
 
           ; Wait for the future, so to speak.
           (.get result))
@@ -99,9 +98,7 @@
         (catch java.util.concurrent.ExecutionException ex
           (do (log/error "Failed to send Evidence Record to Kafka:" id)
               ; Of course if Kafka is down, Evidence Logging may also fail. 
-              (evidence-log/log! {
-                :i "a0040" :s (:agent-name manifest) :c "evidence" :f "send-error" :r id})))))))
-
+              (evidence-log/log! {:i "a0040" :s (:agent-name manifest) :c "evidence" :f "send-error" :r id})))))))
 
 (defn fetch-artifact-map
   "From a seq of Artifact names, fetch {artifact-name [version-url text-content]}.
@@ -110,15 +107,15 @@
   (into {} (map (fn [artifact-name]
                   (let [version-url (artifact/fetch-latest-version-link artifact-name)
                         content (artifact/fetch-latest-artifact-string artifact-name)]
-                    
-                    (evidence-log/log!
-                      {:i "a0002"
-                       :s (:agent-name manifest)
-                       :c "artifact"
-                       :f "fetch"
-                       :v artifact-name
-                       :u version-url})
 
-                  [artifact-name [version-url content]]))
+                    (evidence-log/log!
+                     {:i "a0002"
+                      :s (:agent-name manifest)
+                      :c "artifact"
+                      :f "fetch"
+                      :v artifact-name
+                      :u version-url})
+
+                    [artifact-name [version-url content]]))
                 artifact-names)))
 

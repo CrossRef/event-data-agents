@@ -24,17 +24,17 @@
             [event-data-common.evidence-log :as evidence-log]
             [clojure.data.json :as json]
             [clojure.core.async :refer [go-loop thread buffer chan <!! >!! >! <!]])
-  
+
   (:import [org.apache.commons.codec.digest DigestUtils])
   (:gen-class))
 
 (def checkpoint-store
   (delay
-    (s3/build
-      (:agent-checkpoint-s3-key env)
-      (:agent-checkpoint-s3-secret env)
-      (:agent-checkpoint-s3-region-name env)
-      (:agent-checkpoint-s3-bucket-name env))))
+   (s3/build
+    (:agent-checkpoint-s3-key env)
+    (:agent-checkpoint-s3-secret env)
+    (:agent-checkpoint-s3-region-name env)
+    (:agent-checkpoint-s3-bucket-name env))))
 
 (defn hash-identifier
   [identifier]
@@ -42,13 +42,12 @@
 
 (defn get-checkpoint
   "For a given checkpoint, return the date time that it happened, or nil"
-   [identifier]
-   (let [hashed-identifier (hash-identifier identifier)
-         result (store/get-string @checkpoint-store hashed-identifier)]
+  [identifier]
+  (let [hashed-identifier (hash-identifier identifier)
+        result (store/get-string @checkpoint-store hashed-identifier)]
     (when result
       (let [parsed (json/read-str result :key-fn keyword)]
         (clj-time-coerce/from-long (Long/parseLong (:timestamp-str parsed)))))))
-
 
 (defn floor-date
   "If the supplied date is nil or earlier than the time-period, return the time-period-ago date."
@@ -86,8 +85,8 @@
   "Set checkpoint with identifier to given time, or now."
   ([identifier] (set-checkpoint! identifier (clj-time/now)))
   ([identifier time-value]
-    (let [hashed-identifier (hash-identifier identifier)]
-    (store/set-string
+   (let [hashed-identifier (hash-identifier identifier)]
+     (store/set-string
       @checkpoint-store
       hashed-identifier
       (json/write-str {:identifier identifier
@@ -95,7 +94,6 @@
                        :timestamp-human (str time-value)
                        ; ONLY timestamp-str is used. The rest are for diagnostic / debug purposes.
                        :timestamp-str (str (clj-time-coerce/to-long time-value))})))))
-    
 
 (defn run-checkpointed!
   "Run the given function and set checkpoint with identifier if there hasn't been a checkpoint in the given time period.

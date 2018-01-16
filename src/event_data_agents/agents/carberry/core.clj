@@ -15,7 +15,7 @@
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
             [clj-time.format :as clj-time-format]
-  (:gen-class)))
+            (:gen-class)))
 
 (def agent-name "carberry-agent")
 (def source-token "8a802f32-63bc-4b5c-a14d-ed56a3393ffd")
@@ -28,13 +28,12 @@
 (defn main
   []
   (let [base (util/build-evidence-record manifest {})
-        record (assoc base :pages [
-          {:actions 
-            [{:url "https://www.crossref.org/blog/doi-like-strings-and-fake-dois/"
-              :relation-type-id "references"
-              :subj {}
-              :occurred-at (clj-time-format/unparse date-format (clj-time/now))
-              :observations [{:type "plaintext" :input-content "see 10.5555/12345678" :sensitive false}]}]}])]
+        record (assoc base :pages [{:actions
+                                    [{:url "https://www.crossref.org/blog/doi-like-strings-and-fake-dois/"
+                                      :relation-type-id "references"
+                                      :subj {}
+                                      :occurred-at (clj-time-format/unparse date-format (clj-time/now))
+                                      :observations [{:type "plaintext" :input-content "see 10.5555/12345678" :sensitive false}]}]}])]
     (util/send-evidence-record manifest record)))
 
 (def manifest

@@ -22,7 +22,7 @@
            [com.rometools.rome.io SyndFeedInput XmlReader]
            [org.apache.commons.codec.digest DigestUtils]
            [org.apache.commons.lang3 StringEscapeUtils])
-   (:gen-class))
+  (:gen-class))
 
 (def agent-name "newsfeed-agent")
 (def source-id "newsfeed")
@@ -34,15 +34,15 @@
   [& urls]
   (->> urls
       ; Remove those that aren't URLs.
-      (keep #(try (new URL %) (catch Exception _ nil)))
-      (remove nil?)
+       (keep #(try (new URL %) (catch Exception _ nil)))
+       (remove nil?)
       ; Rank by desirability. Lowest is best.
-      (sort-by #(cond
+       (sort-by #(cond
                   ; feeds.feedburner.com's URLs go via a Google proxy. Ignore those if possible.
-                  (= (.getHost %) "feedproxy.google.com") 5
-                  :default 1))
-      first
-      str))
+                   (= (.getHost %) "feedproxy.google.com") 5
+                   :default 1))
+       first
+       str))
 
 (def date-format
   (:date-time-no-ms clj-time-format/formatters))
@@ -52,32 +52,31 @@
   The Percolator will follow the link to get the content."
   [feed-url fetch-date-str ^SyndEntry entry]
   (let [title (.getTitle entry)
-        
+
         ; Only 'link' is specified as being the URL, but feedburner includes the real URL only in the ID.
         ; Remove tracking parameters immediately so the action-id is as effective as possible at deduping.
         url (url-cleanup/remove-tracking-params
-              (choose-best-link (.getLink entry) (.getUri entry)))
-        
+             (choose-best-link (.getLink entry) (.getUri entry)))
+
         ; Updated date is the date the blog is reported to have been published via the feed.
         ; Failing that, now, the time we ingested this post URL.
         updated (try
-                   (clj-time-coerce/from-date (or (.getUpdatedDate entry)
-                                                  (.getPublishedDate entry)))
-                   (catch Exception e (clj-time/now)))
+                  (clj-time-coerce/from-date (or (.getUpdatedDate entry)
+                                                 (.getPublishedDate entry)))
+                  (catch Exception e (clj-time/now)))
 
         ; Use the URL of the blog post as the action identifier.
         ; This means that the same blog post in different feeds (or even sources) will have the same ID.
         action-id (DigestUtils/sha1Hex ^String url)]
-    
+
     {:id action-id
      :url url
      :relation-type-id "discusses"
      :occurred-at (clj-time-format/unparse date-format updated)
      :observations [{:type :content-url :input-url url :sensitive true}]
      :extra {:feed-url feed-url}
-     :subj {
-      ; Title appears as CDATA containing an HTML encoded string (different to XML encoded!) 
-      :title (StringEscapeUtils/unescapeHtml4 title)}}))
+     :subj {; Title appears as CDATA containing an HTML encoded string (different to XML encoded!) 
+            :title (StringEscapeUtils/unescapeHtml4 title)}}))
 
 (defn actions-from-xml-reader
   [evidence-record-id url ^XmlReader reader]
@@ -85,17 +84,16 @@
         feed (.build input reader)
         entries (.getEntries feed)
         parsed-entries (map
-                         (partial
-                          parse-section
-                          url
-                          (clj-time-format/unparse date-format (clj-time/now)))
-                         entries)]
-  
-    (evidence-log/log! {
-      :i "a0008" :s agent-name :c "newsfeed" :f "parsed-entries"
-      :v (count parsed-entries) :r evidence-record-id :u url})
+                        (partial
+                         parse-section
+                         url
+                         (clj-time-format/unparse date-format (clj-time/now)))
+                        entries)]
 
-  parsed-entries))
+    (evidence-log/log! {:i "a0008" :s agent-name :c "newsfeed" :f "parsed-entries"
+                        :v (count parsed-entries) :r evidence-record-id :u url})
+
+    parsed-entries))
 
 (defn evidence-record-for-feed
   "Get list of parsed Actions from the feed url. Return as an Evidence Record."
@@ -106,38 +104,38 @@
     (log/info "Retrieve latest from feed:" feed-url)
 
     (evidence-log/log!
-      {:i "a0009" :s agent-name :c "remote-newsfeed" :f "request" :u feed-url :r evidence-record-id})
+     {:i "a0009" :s agent-name :c "remote-newsfeed" :f "request" :u feed-url :r evidence-record-id})
 
     (try
       (let [reader (new XmlReader (new URL feed-url))
             actions (actions-from-xml-reader evidence-record-id feed-url reader)]
-        
+
         ; Parse succeeded.
         (evidence-log/log!
-          {:i "a000a"
-           :s agent-name
-           :c "remote-newsfeed"
-           :f "parse"
-           :e "t"
-           :u feed-url
-           :r evidence-record-id})
+         {:i "a000a"
+          :s agent-name
+          :c "remote-newsfeed"
+          :f "parse"
+          :e "t"
+          :u feed-url
+          :r evidence-record-id})
 
         (assoc base-record
           ; One page of actions.
-          :pages [{:actions actions}]))
+               :pages [{:actions actions}]))
 
       ; e.g. com.rometools.rome.io.ParsingFeedException
       (catch Exception ex
         (do
           ; Parse failed. Same log ID.
           (evidence-log/log!
-            {:i "a000a"
-             :s agent-name
-             :c "remote-newsfeed"
-             :f "parse"
-             :e "f"
-             :u feed-url
-             :r evidence-record-id})
+           {:i "a000a"
+            :s agent-name
+            :c "remote-newsfeed"
+            :f "parse"
+            :e "f"
+            :u feed-url
+            :r evidence-record-id})
 
           (log/info "Error parsing data from feed url:" feed-url))))))
 
@@ -155,8 +153,7 @@
   "Main function for Newsfeed Agent."
   []
 
-  (evidence-log/log! {
-    :i "a000c" :s agent-name :c "scan" :f "start"})
+  (evidence-log/log! {:i "a000c" :s agent-name :c "scan" :f "start"})
 
   (log/info "Start crawl all newsfeeds at" (str (clj-time/now)))
   (let [artifact-map (util/fetch-artifact-map manifest ["newsfeed-list"])
@@ -165,21 +162,21 @@
 
         ; Check every newsfeed, checkpointing per newsfeed.
         results (pmap
-                  #(checkpoint/run-checkpointed!
-                    ["newsfeed" "feed-check" %]
-                    (clj-time/hours 1)
+                 #(checkpoint/run-checkpointed!
+                   ["newsfeed" "feed-check" %]
+                   (clj-time/hours 1)
                     ; We discard the last-run date anyway, as newsfeeds
                     ; only ever give one page of results.
-                    (clj-time/hours 1)
-                    (fn [_] (check-newsfeed artifact-map %)))
-                  newsfeed-set)]
+                   (clj-time/hours 1)
+                   (fn [_] (check-newsfeed artifact-map %)))
+                 newsfeed-set)]
 
     (log/info "Got newsfeed-list artifact:" (-> artifact-map (get "newsfeed-list") first))
-    
+
     (dorun results)
-    
+
     (evidence-log/log! {:i "a000d" :s agent-name :c "scan" :f "finish"})
-    
+
     (log/info "Finished scan.")))
 
 (def manifest

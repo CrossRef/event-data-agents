@@ -45,26 +45,26 @@
   [evidence-record-id]
 
   (let [response (client/post
-                    "https://www.reddit.com/api/v1/access_token"
-                     {:as :text
-                      :headers {"User-Agent" user-agent}
-                      :form-params {"grant_type" "password"
-                                    "username" (:reddit-app-name env)
-                                    "password" (:reddit-password env)}
-                      :basic-auth [(:reddit-client env) (:reddit-secret env)]
-                      :throw-exceptions false})
+                  "https://www.reddit.com/api/v1/access_token"
+                  {:as :text
+                   :headers {"User-Agent" user-agent}
+                   :form-params {"grant_type" "password"
+                                 "username" (:reddit-app-name env)
+                                 "password" (:reddit-password env)}
+                   :basic-auth [(:reddit-client env) (:reddit-secret env)]
+                   :throw-exceptions false})
         token (when-let [body (:body response)]
                 (->
-                  (json/read-str body :key-fn keyword)
-                  :access_token))]
+                 (json/read-str body :key-fn keyword)
+                 :access_token))]
 
     (evidence-log/log!
-      {:i "a0013"
-       :s agent-name
-       :c "reddit-api"
-       :f "authenticate"
-       :r evidence-record-id
-       :e (if token "t" "f")})
+     {:i "a0013"
+      :s agent-name
+      :c "reddit-api"
+      :f "authenticate"
+      :r evidence-record-id
+      :e (if token "t" "f")})
 
     token))
 
@@ -94,12 +94,12 @@
                (not (uninterested-hostnames host))
                (not (domains host)))
 
-    {:id (DigestUtils/sha1Hex ^String cleaned-link)
-     :url cleaned-link
-     :relation-type-id "discusses"
-     :occurred-at occurred-at-iso8601
-     :subj {}
-     :observations [{:type :content-url :input-url cleaned-link :sensitive true}]})))
+      {:id (DigestUtils/sha1Hex ^String cleaned-link)
+       :url cleaned-link
+       :relation-type-id "discusses"
+       :occurred-at occurred-at-iso8601
+       :subj {}
+       :observations [{:type :content-url :input-url cleaned-link :sensitive true}]})))
 
 ; API
 (defn parse-page
@@ -107,9 +107,8 @@
   [domains url json-data]
   (let [parsed (json/read-str json-data :key-fn keyword)]
     {:url url
-     :extra {
-      :after (-> parsed :data :after)
-      :before (-> parsed :data :before)}
+     :extra {:after (-> parsed :data :after)
+             :before (-> parsed :data :before)}
      ; parse returns nil for links we don't want. Don't include null actions.
      :actions (keep (partial api-item-to-action domains) (-> parsed :data :children))}))
 
@@ -132,31 +131,31 @@
     (try
 
       (evidence-log/log!
-            {:i "a0036"
-             :s agent-name
-             :c "reddit-api"
-             :f "request"
-             :u url
-             :r evidence-record-id})
+       {:i "a0036"
+        :s agent-name
+        :c "reddit-api"
+        :f "request"
+        :u url
+        :r evidence-record-id})
 
       (try-try-again
-        {:sleep 30000 :tries 10}
-        #(let [result (client/get url {:timeout 60000
-                                       :headers {"User-Agent" user-agent
+       {:sleep 30000 :tries 10}
+       #(let [result (client/get url {:timeout 60000
+                                      :headers {"User-Agent" user-agent
                                                  ; Optimistically use token. If it doesn't work, retry in error handler.
-                                                 "Authorization" (str "bearer " @reddit-token)}
-                                       :throw-exceptions false})]
-          
+                                                "Authorization" (str "bearer " @reddit-token)}
+                                      :throw-exceptions false})]
+
           (log/info "Fetched" url)
 
           (evidence-log/log!
-            {:i "a0014"
-             :s agent-name
-             :c "reddit-api"
-             :f "response"
-             :u url
-             :r evidence-record-id
-             :e (:status result)})
+           {:i "a0014"
+            :s agent-name
+            :c "reddit-api"
+            :f "response"
+            :u url
+            :r evidence-record-id
+            :e (:status result)})
 
           (condp = (:status result)
             200 (parse-page domains url (:body result))
@@ -177,33 +176,33 @@
               (throw (new Exception "Unexpected status"))))))
 
       (catch Exception ex (do
-        (evidence-log/log!
-          {:i "a0015"
-            :s agent-name
-           :c "reddit-api"
-           :f "error"
-           :u url
-           :r evidence-record-id})
+                            (evidence-log/log!
+                             {:i "a0015"
+                              :s agent-name
+                              :c "reddit-api"
+                              :f "error"
+                              :u url
+                              :r evidence-record-id})
 
-        (log/error "Error fetching" url)
-        (log/error "Exception:" ex)
-        {:url url :actions [] :extra {:after nil :before nil :error "Failed to retrieve page"}})))))
+                            (log/error "Error fetching" url)
+                            (log/error "Exception:" ex)
+                            {:url url :actions [] :extra {:after nil :before nil :error "Failed to retrieve page"}})))))
 
 (def fetch-page-throttled (throttle-fn fetch-page 20 :minute))
 
 (defn fetch-pages
   "Lazy sequence of pages for the subreddit."
   ([evidence-record-id domains subreddit]
-    (fetch-pages evidence-record-id domains subreddit nil))
+   (fetch-pages evidence-record-id domains subreddit nil))
 
   ([evidence-record-id domains subreddit after-token]
-    (let [result (fetch-page-throttled evidence-record-id domains subreddit after-token)
+   (let [result (fetch-page-throttled evidence-record-id domains subreddit after-token)
           ; Token for next page. If this is null then we've reached the end of the iteration.
-          after-token (-> result :extra :after)]
+         after-token (-> result :extra :after)]
 
-      (if after-token
-        (lazy-seq (cons result (fetch-pages evidence-record-id domains subreddit after-token)))
-        [result]))))
+     (if after-token
+       (lazy-seq (cons result (fetch-pages evidence-record-id domains subreddit after-token)))
+       [result]))))
 
 (defn all-action-dates-after?
   [date page]
@@ -219,30 +218,28 @@
 
 (defn check-subreddit
   [subreddit artifact-map domain-set cutoff-date]
-   (let [base-record (util/build-evidence-record manifest artifact-map)
+  (let [base-record (util/build-evidence-record manifest artifact-map)
         evidence-record-id (:id base-record)]
 
     (log/info
-      "Evidence record:" evidence-record-id
-      "Query subreddit:" subreddit
-      "Cutoff date:" (str cutoff-date))
+     "Evidence record:" evidence-record-id
+     "Query subreddit:" subreddit
+     "Cutoff date:" (str cutoff-date))
 
     ; Need to realize the lazy sequence as we're stuffing it into an Evidence Record.
     (let [pages (doall (fetch-parsed-pages-after evidence-record-id domain-set subreddit cutoff-date))
           evidence-record (assoc base-record
-                            :extra {:cutoff-date (str cutoff-date) :queried-subreddit subreddit}
-                            :pages pages)]
+                                 :extra {:cutoff-date (str cutoff-date) :queried-subreddit subreddit}
+                                 :pages pages)]
       (log/info "Sending evidence record...")
       (util/send-evidence-record manifest evidence-record))))
-
 
 (defn main
   "Check all subreddits for unseen links."
   []
   (log/info "Start crawl all Domains on Reddit at" (str (clj-time/now)))
 
-  (evidence-log/log! {
-    :i "a0016" :s agent-name :c "scan" :f "start"})
+  (evidence-log/log! {:i "a0016" :s agent-name :c "scan" :f "start"})
 
   (let [artifact-map (util/fetch-artifact-map manifest ["domain-list" "subreddit-list"])
         [domain-list-url domain-list] (artifact-map "domain-list")
@@ -254,17 +251,16 @@
 
         results (pmap (fn [subreddit]
                         (checkpoint/run-checkpointed!
-                          ["reddit-links" "subreddit-query" subreddit]
-                          (clj-time/hours 1) ; Scan each subreddit at most once an hour.
-                          (clj-time/years 5) ; Don't page back past 5 years.
-                          #(check-subreddit subreddit artifact-map domain-set %)))
+                         ["reddit-links" "subreddit-query" subreddit]
+                         (clj-time/hours 1) ; Scan each subreddit at most once an hour.
+                         (clj-time/years 5) ; Don't page back past 5 years.
+                         #(check-subreddit subreddit artifact-map domain-set %)))
                       subreddits)]
 
     (dorun results))
 
-    (evidence-log/log! {
-      :i "a0017" :s agent-name :c "scan" :f "finish"})
-    (log/info "Finished scan."))
+  (evidence-log/log! {:i "a0017" :s agent-name :c "scan" :f "finish"})
+  (log/info "Finished scan."))
 
 (def manifest
   {:agent-name agent-name

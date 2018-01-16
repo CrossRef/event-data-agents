@@ -34,29 +34,29 @@
 (defn manifests-for-names
   "Retrieve the manifests for the Agent names.
    Log error if not found but don't error."
-   [agent-names]
-   (doall
-    (keep
-      (fn [agent-name]
-        (let [manifest (get manifests (keyword agent-name))]
-          (when-not manifest
-            (log/error "Didn't recognise agent name" agent-name))
-          manifest))
-      agent-names)))
+  [agent-names]
+  (doall
+   (keep
+    (fn [agent-name]
+      (let [manifest (get manifests (keyword agent-name))]
+        (when-not manifest
+          (log/error "Didn't recognise agent name" agent-name))
+        manifest))
+    agent-names)))
 
 (defn start-schedule
   "Run the schedule for the given string Agent names.
    at-at starts a daemon thread which will block exit."
   [schedule-pool agent-names]
   (log/info "Start scheduler...")
-    
-    (doseq [manifest (manifests-for-names agent-names)]
-      (log/info "Adding schedule for" (:agent-name manifest))
-      (doseq [[function delay-period] (:schedule manifest)]
-        (log/info "Add schedule" function "with delay" (str delay-period))
-        (at-at/interspaced
-          (clj-time/in-millis delay-period)
-          function schedule-pool)))
+
+  (doseq [manifest (manifests-for-names agent-names)]
+    (log/info "Adding schedule for" (:agent-name manifest))
+    (doseq [[function delay-period] (:schedule manifest)]
+      (log/info "Add schedule" function "with delay" (str delay-period))
+      (at-at/interspaced
+       (clj-time/in-millis delay-period)
+       function schedule-pool)))
 
   (log/info "Finished setting up scheduler."))
 
@@ -64,10 +64,10 @@
   "Run the job that would have been scheduled for the given Agent names now, then exit."
   [agent-names]
   (log/info "Running one-off Agent schedule jobs now...")
-  
+
   (doseq [manifest (manifests-for-names agent-names)]
     (log/info "Running jobs for" (:agent-name manifest))
-    
+
     (doseq [[function delay-period] (:schedule manifest)]
       (log/info "Running job for" (:agent-name manifest) "...")
       (function))

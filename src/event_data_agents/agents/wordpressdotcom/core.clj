@@ -47,46 +47,41 @@
   ([evidence-record-id domain] (fetch-pages evidence-record-id domain 1))
   ([evidence-record-id domain page-number]
     ; If we're blocked after 20 tries (17 minute delay) then just give up the whole thing.
-    
 
-    (let [query-params {"f" "json"
-                        "size" 20
-                        "t" "post"
-                        "q" (str \" domain \")
-                        "page" page-number
-                        "s" "date"}
+
+   (let [query-params {"f" "json"
+                       "size" 20
+                       "t" "post"
+                       "q" (str \" domain \")
+                       "page" page-number
+                       "s" "date"}
 
           ; The API returns nil value to represent the end of results, but also sometimes at random during pagination.
           ; Because most queries result in nil, don't re-try every nil. Instead only do this when we're at least into page 2 of a result set.
           ; This is a compromise between retrying every single failed result and potentially missing out on some.
           ; This is just a quirk of the Wordpress.com API.
-          url (str query-url-base "?" (client/generate-query-string query-params))
-          result-parsed (try
-                          (evidence-log/log! {
-                            :i "a0033" :s agent-name :c "wordpressdotcom-api" :f "request"
-                            :p page-number :v domain :u url})
+         url (str query-url-base "?" (client/generate-query-string query-params))
+         result-parsed (try
+                         (evidence-log/log! {:i "a0033" :s agent-name :c "wordpressdotcom-api" :f "request"
+                                             :p page-number :v domain :u url}) (try-try-again {:tries 3 :decay :double :delay 1000}
+                                                                                              (fn [] (let [result (client/get query-url-base {:query-params query-params :headers {"User-Agent" user-agent}})
+                                                                                                           body (when-let [body (:body result)] (json/read-str body))]
+                                                                                                       (if body
+                                                                                                         body
+                                                                                                         (when (> page-number 1)
+                                                                                                           (throw (new Exception)))))))
+                         (catch Exception ex nil))]
 
+     (evidence-log/log! {:i "a0034" :s agent-name :c "wordpressdotcom-api" :f "response"
+                         :p page-number :v domain :u url :e (if result-parsed "t" "f")})
 
-                          (try-try-again {:tries 3 :decay :double :delay 1000}
-                                         (fn [] (let [result (client/get query-url-base {:query-params query-params :headers {"User-Agent" user-agent}})
-                                                      body (when-let [body (:body result)] (json/read-str body))]
-                                                  (if body
-                                                      body
-                                                      (when (> page-number 1)
-                                                        (throw (new Exception)))))))
-                          (catch Exception ex nil))]
-
-      (evidence-log/log! {
-        :i "a0034" :s agent-name :c "wordpressdotcom-api" :f "response"
-        :p page-number :v domain :u url :e (if result-parsed "t" "f")})
-
-      (log/info "Retrieved" url)
+     (log/info "Retrieved" url)
 
       ; The API just returns nil when there's no more data (or we got another failure).
-      (if (nil? result-parsed)
-        nil
-        (lazy-cat [{:url url :results result-parsed}]
-                  (fetch-pages evidence-record-id domain (inc page-number)))))))
+     (if (nil? result-parsed)
+       nil
+       (lazy-cat [{:url url :results result-parsed}]
+                 (fetch-pages evidence-record-id domain (inc page-number)))))))
 
 (defn parse-item
   "Parse a page item into an Action."
@@ -94,10 +89,10 @@
   (let [url (get item "link")
         title (get item "title")
         date (-> item
-               (get "epoch_time")
-               Long/parseLong
-               (* 1000)
-               clj-time-coerce/from-long)
+                 (get "epoch_time")
+                 Long/parseLong
+                 (* 1000)
+                 clj-time-coerce/from-long)
 
         date-str (clj-time-format/unparse date-format date)
 
@@ -109,10 +104,9 @@
      :relation-type-id "discusses"
      :occurred-at date-str
      :observations [{:type :content-url :input-url url :sensitive true}]
-     :subj {
-      :type "post-weblog"
+     :subj {:type "post-weblog"
       ; We find occasional HTML character entities.
-      :title (StringEscapeUtils/unescapeHtml4 title)}}))
+            :title (StringEscapeUtils/unescapeHtml4 title)}}))
 
 (defn parse-page
   [page]
@@ -130,10 +124,10 @@
    As many pages as have events that occurred after the date."
   [evidence-record-id date domain]
   (take-pages-after
-    date
-    (map
-      parse-page
-      (->> domain (fetch-pages evidence-record-id) (take max-pages) stop-at-dupe))))
+   date
+   (map
+    parse-page
+    (->> domain (fetch-pages evidence-record-id) (take max-pages) stop-at-dupe))))
 
 (defn check-domain
   [domain artifact-map cutoff-date]
@@ -143,7 +137,7 @@
 
   (let [base-record (util/build-evidence-record manifest artifact-map)
         evidence-record-id (:id base-record)
-        
+
         pages (doall (fetch-parsed-pages-after evidence-record-id cutoff-date domain))
         evidence-record (assoc base-record
                                :extra {:cutoff-date (clj-time-format/unparse date-format cutoff-date)
@@ -158,28 +152,25 @@
   []
   (log/info "Start crawl all Domains on Wordpress.com at" (str (clj-time/now)))
 
-  (evidence-log/log! {
-    :i "a0031" :s agent-name :c "scan-all-sites" :f "start"})
+  (evidence-log/log! {:i "a0031" :s agent-name :c "scan-all-sites" :f "start"})
 
   (let [artifact-map (util/fetch-artifact-map manifest ["domain-list"])
         [domain-list-url domain-list] (artifact-map "domain-list")
         domains (clojure.string/split domain-list #"\n")
 
         num-domains (count domains)]
-    
+
     (doseq [domain domains]
 
       (checkpoint/run-checkpointed!
-        ["wordpressdotcom" "domain-scan" domain]
-        (clj-time/days 1) ; Scan at most once per day per domain.
-        (clj-time/years 10) ; Scan back no further than 10 years.
-        #(check-domain domain artifact-map %))))
+       ["wordpressdotcom" "domain-scan" domain]
+       (clj-time/days 1) ; Scan at most once per day per domain.
+       (clj-time/years 10) ; Scan back no further than 10 years.
+       #(check-domain domain artifact-map %))))
 
-  (evidence-log/log! {
-    :i "a0032" :s agent-name :c "scan-all-sites" :f "finish"})
+  (evidence-log/log! {:i "a0032" :s agent-name :c "scan-all-sites" :f "finish"})
 
   (log/info "Finished scan."))
-
 
 (def manifest
   {:agent-name agent-name

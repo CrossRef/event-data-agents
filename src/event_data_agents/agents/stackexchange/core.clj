@@ -59,57 +59,54 @@
   "Fetch an API result, return a page of Sites."
   [page-number]
   (log/info "Fetch list of sites")
-  (let [url (str api-host "/2.2/sites" )
+  (let [url (str api-host "/2.2/sites")
         query-params {:page page-number
                       :filter sites-filter
                       :pagesize page-size}]
-    
-    (evidence-log/log! {
-      :i "a0018" :s agent-name :c "stackexchange-api" :f "retrieve-all-sites-request"
-      :p page-number :u url})
+
+    (evidence-log/log! {:i "a0018" :s agent-name :c "stackexchange-api" :f "retrieve-all-sites-request"
+                        :p page-number :u url})
 
     ; If the API returns an error
     (try
       (try-try-again
-        {:sleep 30000 :tries 10}
-        #(let [result (client/get url {:headers {"User-Agent" user-agent} :query-params query-params :throw-exceptions true})]
+       {:sleep 30000 :tries 10}
+       #(let [result (client/get url {:headers {"User-Agent" user-agent} :query-params query-params :throw-exceptions true})]
 
           (log/info "Fetched" url query-params)
 
-          (evidence-log/log! {
-            :i "a0019" :s agent-name :c "stackexchange-api" :f "retrieve-all-sites-response"
-            :u url :e (:status result)})
+          (evidence-log/log! {:i "a0019" :s agent-name :c "stackexchange-api" :f "retrieve-all-sites-response"
+                              :u url :e (:status result)})
 
           (condp = (:status result)
             200 (json/read-str (:body result) :key-fn keyword)
-            
+
             ; Not found? Stop.
             404 {:url url :actions [] :extra {:error "Result not found"}}
 
             ; Don't throw on this exception, retrying won't help.
             400 {:url url :actions [] :extra {:error "Bad Request, maybe rate limit"}}
-            
+
             (do
               (log/error "Unexpected status code" (:status result) "from" url)
               (log/error "Body of error response:" (:body url))
               (throw (new Exception "Unexpected status"))))))
 
       (catch Exception ex (do
-        (evidence-log/log! {
-          :i "a0019" :s agent-name :c "stackexchange-api" :f "error"})
+                            (evidence-log/log! {:i "a0019" :s agent-name :c "stackexchange-api" :f "error"})
 
-        (log/error "Error fetching" url)
-        (log/error "Exception:" ex)
-        {:url url :items [] :extra {:error "Failed to retrieve page"}})))))
+                            (log/error "Error fetching" url)
+                            (log/error "Exception:" ex)
+                            {:url url :items [] :extra {:error "Failed to retrieve page"}})))))
 
 (defn fetch-sites
   ([] (fetch-sites 1))
   ([page-number]
-    (let [result (fetch-sites-page page-number)
-          items (result :items [])]
-      (if (result :has_more)
-        (lazy-cat items (fetch-sites (inc page-number)))
-        items))))
+   (let [result (fetch-sites-page page-number)
+         items (result :items [])]
+     (if (result :has_more)
+       (lazy-cat items (fetch-sites (inc page-number)))
+       items))))
 
 (defn api-item-to-action
   [item site-url]
@@ -123,9 +120,9 @@
               nil)
 
         work-type (condp = typ
-              "question" "webpage"
-              "answer" "comment"
-              nil)
+                    "question" "webpage"
+                    "answer" "comment"
+                    nil)
 
         author-name (-> item :owner :display_name)
         author-id (-> item :owner :user_id)
@@ -135,28 +132,27 @@
         text (StringEscapeUtils/unescapeHtml4 (:body item ""))]
 
   ; URL only constructed when we get a type we recognise.
-  (when url
-    {:url url
-     :relation-type-id "discusses"
+    (when url
+      {:url url
+       :relation-type-id "discusses"
      ; as this comes from the specific API, don't use a general purpose URL as the action id.
-     :id (DigestUtils/sha1Hex ^String (str "stackexchange-" url))
-     :occurred-at creation-date
-     :subj {
-       :pid url
-       :title (StringEscapeUtils/unescapeHtml4 (:title item ""))
-       :issued creation-date
-       :type work-type
-       :author {:url author-url :name author-name :id author-id}}
-     :observations [{:type :plaintext
-                    :input-content text
-                    :sensitive true}]})))
+       :id (DigestUtils/sha1Hex ^String (str "stackexchange-" url))
+       :occurred-at creation-date
+       :subj {:pid url
+              :title (StringEscapeUtils/unescapeHtml4 (:title item ""))
+              :issued creation-date
+              :type work-type
+              :author {:url author-url :name author-name :id author-id}}
+       :observations [{:type :plaintext
+                       :input-content text
+                       :sensitive true}]})))
 
 ; API
 (defn parse-page
   "Parse response JSON to a page of Actions."
   [url site-url json-data]
   (let [parsed (json/read-str json-data :key-fn keyword)
-       items (:items parsed)]
+        items (:items parsed)]
     {:url url
      :extra (select-keys parsed [:quota_remaining :quota_max :backoff])
      :actions (map #(api-item-to-action % site-url) items)}))
@@ -166,7 +162,7 @@
   [evidence-record-id site-info domain from-date page-number]
 
   (log/info "Fetch page for site" site-info "domain" domain)
-  (let [url (str api-host "/2.2/search/excerpts" )
+  (let [url (str api-host "/2.2/search/excerpts")
         query-params {:order "desc"
                       :sort "creation"
                       :q (str "url:\"" domain "\"")
@@ -176,47 +172,44 @@
                       :site (:api_site_parameter site-info)
                       :filter excerpts-filter}]
 
-    (evidence-log/log! {
-      :i "a001a" :s agent-name :c "stackexchange-api" :f "search-request"
-      :v domain :p page-number
-      :r evidence-record-id })
+    (evidence-log/log! {:i "a001a" :s agent-name :c "stackexchange-api" :f "search-request"
+                        :v domain :p page-number
+                        :r evidence-record-id})
 
     ; If the API returns an error
     (try
       (try-try-again
-        {:sleep 30000 :tries 10}
-        #(let [result (client/get url {:headers {"User-Agent" user-agent} :query-params query-params :throw-exceptions true})]
+       {:sleep 30000 :tries 10}
+       #(let [result (client/get url {:headers {"User-Agent" user-agent} :query-params query-params :throw-exceptions true})]
 
           (log/info "Fetched" url query-params)
 
-          (evidence-log/log! {
-            :i "a001b" :s agent-name :c "stackexchange-api" :f "search-response"
-            :r evidence-record-id :v domain :p page-number
-            :e (:status result)})
+          (evidence-log/log! {:i "a001b" :s agent-name :c "stackexchange-api" :f "search-response"
+                              :r evidence-record-id :v domain :p page-number
+                              :e (:status result)})
 
           (condp = (:status result)
             200 (parse-page url (:site_url site-info) (:body result))
-            
+
             ; Not found? Stop.
             404 {:url url :actions [] :extra {:error "Result not found"}}
 
             ; Don't throw on this exception, retrying won't help.
             400 {:url url :actions [] :extra {:error "Bad Request, maybe rate limit"}}
-            
+
             (do
               (log/error "Unexpected status code" (:status result) "from" url)
               (log/error "Body of error response:" (:body url))
               (throw (new Exception "Unexpected status"))))))
 
       (catch Exception ex (do
-        (log/error "Error fetching" url)
-        (log/error "Exception:" ex)
+                            (log/error "Error fetching" url)
+                            (log/error "Exception:" ex)
 
-        (evidence-log/log! {
-            :i "a001c" :s agent-name :c "stackexchange-api" :f "search-error"
-            :r evidence-record-id :v domain :p page-number})
+                            (evidence-log/log! {:i "a001c" :s agent-name :c "stackexchange-api" :f "search-error"
+                                                :r evidence-record-id :v domain :p page-number})
 
-        {:url url :actions [] :extra {:error "Failed to retrieve page"}})))))
+                            {:url url :actions [] :extra {:error "Failed to retrieve page"}})))))
 
 ; https://api.stackexchange.com/docs/throttle
 ; Not entirely predictable. Go ultra low. 
@@ -227,51 +220,51 @@
   ([evidence-record-id site-info domain from-date]
     ; Pagination starts with 1! 
     ; https://api.stackexchange.com/docs/paging
-    (fetch-pages evidence-record-id site-info domain from-date 1))
+   (fetch-pages evidence-record-id site-info domain from-date 1))
 
   ([evidence-record-id site-info domain from-date page-number]
-    (log/info "Query page" page-number "of" site-info domain)
-    (let [result (fetch-page-throttled evidence-record-id site-info domain from-date page-number)
-          end (-> result :extra :has_more not)
+   (log/info "Query page" page-number "of" site-info domain)
+   (let [result (fetch-page-throttled evidence-record-id site-info domain from-date page-number)
+         end (-> result :extra :has_more not)
           ; as float or nil
-          quota-remaining-proportion (when (and (-> result :extra :quota_max)
-                                       (-> result :extra :quota_remaining)
-                                       (> (-> result :extra :quota_max) 0))
-                                     (float (/ (-> result :extra :quota_remaining)
-                                               (-> result :extra :quota_max))))
+         quota-remaining-proportion (when (and (-> result :extra :quota_max)
+                                               (-> result :extra :quota_remaining)
+                                               (> (-> result :extra :quota_max) 0))
+                                      (float (/ (-> result :extra :quota_remaining)
+                                                (-> result :extra :quota_max))))
 
-          backoff-seconds (-> result :extra :backoff)
+         backoff-seconds (-> result :extra :backoff)
 
                              ; We get 400s on over-quota requests.
-          emergency-stop (or (-> result :exta :error)
-                             (-> result :extra :quota_remaining (or 0) zero?))]
+         emergency-stop (or (-> result :exta :error)
+                            (-> result :extra :quota_remaining (or 0) zero?))]
 
-      (log/info "Quota remaining:" quota-remaining-proportion "," (-> result :extra :quota_remaining) "/" (-> result :extra :quota_max) "quota remaining!")
+     (log/info "Quota remaining:" quota-remaining-proportion "," (-> result :extra :quota_remaining) "/" (-> result :extra :quota_max) "quota remaining!")
 
       ; In last 10% of quota, sleep more between requests.
-      (when (and quota-remaining-proportion (< quota-remaining-proportion 0.1))
-        (log/info "Warning! " (-> result :extra :quota_remaining) "/" (-> result :extra :quota_max) "quota remaining!")
-        (Thread/sleep 20000))
+     (when (and quota-remaining-proportion (< quota-remaining-proportion 0.1))
+       (log/info "Warning! " (-> result :extra :quota_remaining) "/" (-> result :extra :quota_max) "quota remaining!")
+       (Thread/sleep 20000))
 
-      (when backoff-seconds
-        (log/info "Back off for" backoff-seconds "seconds")
-        (Thread/sleep (* 1000 backoff-seconds)))
+     (when backoff-seconds
+       (log/info "Back off for" backoff-seconds "seconds")
+       (Thread/sleep (* 1000 backoff-seconds)))
 
-      (when emergency-stop
-        (log/error "Out of API quota, stopping before end of results!"))
+     (when emergency-stop
+       (log/error "Out of API quota, stopping before end of results!"))
 
-      (if (or end emergency-stop)
-        [result]
-        (lazy-seq (cons result (fetch-pages evidence-record-id site-info domain from-date (inc page-number))))))))
+     (if (or end emergency-stop)
+       [result]
+       (lazy-seq (cons result (fetch-pages evidence-record-id site-info domain from-date (inc page-number))))))))
 
 (defn check-site
   [site-info artifact-map cutoff-date]
   (log/info "Query site" (:site_url site-info)
             "Cutoff date:" (str cutoff-date))
-  
+
   (let [base-record (util/build-evidence-record manifest artifact-map)
         evidence-record-id (:id base-record)
-    
+
         ; API takes timestamp.
         from-date (int (/ (coerce/to-long cutoff-date) 1000))
 
@@ -279,17 +272,15 @@
         ; in Kafka Producer submission.
         pages (doall (fetch-pages evidence-record-id site-info "doi.org" from-date))
         evidence-record (assoc base-record
-                          :extra {:cutoff-date (str cutoff-date)
-                                  :queried-domain "doi.org"}
-                          :pages pages)]
+                               :extra {:cutoff-date (str cutoff-date)
+                                       :queried-domain "doi.org"}
+                               :pages pages)]
 
     (log/info "Sending evidence-record" (:id evidence-record) "...")
 
     (util/send-evidence-record manifest evidence-record)
 
     (log/info "Sent evidence-record" (:id evidence-record) ".")))
-
-
 
 (defn scan-sites
   "Check all mentioned sites for unseen links. Send an Evidence Record per site.
@@ -300,39 +291,34 @@
   ; No point in parallelism because we're rate limiting.
   (doseq [site-info site-infos]
     (checkpoint/run-checkpointed!
-      ["stackexchange" "site" "doi-search" (:site_url site-info)]
-      (clj-time/days 1) ; Check at most once a day per site.
-      (clj-time/years 5) ; Only go back 5 years max.
-      #(check-site site-info artifact-map %)))
+     ["stackexchange" "site" "doi-search" (:site_url site-info)]
+     (clj-time/days 1) ; Check at most once a day per site.
+     (clj-time/years 5) ; Only go back 5 years max.
+     #(check-site site-info artifact-map %)))
 
   (log/info "Finished scan."))
-
 
 (defn main-sites-from-artifact
   "Check sites in artifact."
   []
 
-  (evidence-log/log! {
-    :i "a001d" :s agent-name :c "scan-selected-sites" :f "start"})
+  (evidence-log/log! {:i "a001d" :s agent-name :c "scan-selected-sites" :f "start"})
 
   (log/info "Start crawl all Sites from artifact at" (str (clj-time/now)))
   (let [artifact-map (util/fetch-artifact-map manifest ["stackexchange-sites"])
         [_ site-list] (artifact-map "stackexchange-sites")
-        
+
         ; Sites artifact is {:site_url :api_site_parameter}
         sites (json/read-str site-list :key-fn keyword)]
 
     (scan-sites artifact-map sites)
 
-    (evidence-log/log! {
-      :i "a001e" :s agent-name :c "scan-selected-sites" :f "finish"})))
-
+    (evidence-log/log! {:i "a001e" :s agent-name :c "scan-selected-sites" :f "finish"})))
 
 (defn main-all-sites
   "Check all sites."
   []
-  (evidence-log/log! {
-    :i "a001f" :s agent-name :c "scan-all-sites" :f "start"})
+  (evidence-log/log! {:i "a001f" :s agent-name :c "scan-all-sites" :f "start"})
 
   (log/info "Start crawl all Sites on stackexchange at" (str (clj-time/now)))
   (let [; Sites artifact is [{:site_url :api_site_parameter}]
@@ -340,8 +326,7 @@
 
     (scan-sites {} all-sites)
 
-    (evidence-log/log! {
-      :i "a0020" :s agent-name :c "scan-all-sites" :f "finish"})))
+    (evidence-log/log! {:i "a0020" :s agent-name :c "scan-all-sites" :f "finish"})))
 
 (def manifest
   {:agent-name agent-name

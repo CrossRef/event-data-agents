@@ -11,11 +11,11 @@
   "Install default thread exception handler to log and exit."
   []
   (Thread/setDefaultUncaughtExceptionHandler
-    (reify Thread$UncaughtExceptionHandler
-      (uncaughtException [_ thread ex]
-        (log/error ex "Uncaught exception on" (.getName thread))
-        (log/error "Exiting from thread handler NOW.")
-        (System/exit 1)))))
+   (reify Thread$UncaughtExceptionHandler
+     (uncaughtException [_ thread ex]
+       (log/error ex "Uncaught exception on" (.getName thread))
+       (log/error "Exiting from thread handler NOW.")
+       (System/exit 1)))))
 
 (defn -main
   [& args]

@@ -29,7 +29,7 @@
 (def input-date-format
   (:date-time clj-time-format/formatters))
 
-(defn tweet-id-from-url 
+(defn tweet-id-from-url
   [url]
   (re-find #"[\d]+$" url))
 
@@ -98,18 +98,16 @@
           (recur rules rule (conj compacted acc))
           (recur rules new-rule compacted))))))
 
-
 (defn main-update-rules
   "Perform complete update cycle of Gnip rules.
   Do this by fetching the list of domains and prefixes from the domain list Artifact,
   creating a rule-set then diffing with what's already in Gnip."
   []
 
-  (evidence-log/log! {
-        :i "a0037" :s agent-name :c "update-rules" :f "start"})
+  (evidence-log/log! {:i "a0037" :s agent-name :c "update-rules" :f "start"})
 
   (let [old-rule-ids (fetch-rule-ids-from-gnip)
-        
+
         artifact-map (util/fetch-artifact-map manifest ["domain-list" "doi-prefix-list"])
         [_ domain-list] (artifact-map "domain-list")
         domains (clojure.string/split domain-list #"\n")
@@ -124,14 +122,11 @@
 
     (log/info "Old rules " (count old-rule-ids) ", up to date rules " (count rules))
 
-    (evidence-log/log! {
-        :i "a0038" :s agent-name :c "update-rules" :f "domain-count" :v (count domains)})
+    (evidence-log/log! {:i "a0038" :s agent-name :c "update-rules" :f "domain-count" :v (count domains)})
 
-    (evidence-log/log! {
-        :i "a0039" :s agent-name :c "update-rules" :f "prefix-count" :v (count doi-prefix-list)})
+    (evidence-log/log! {:i "a0039" :s agent-name :c "update-rules" :f "prefix-count" :v (count doi-prefix-list)})
 
-    (evidence-log/log! {
-        :i "a003a" :s agent-name :c "update-rules" :f "rule-count" :v (count rules)})
+    (evidence-log/log! {:i "a003a" :s agent-name :c "update-rules" :f "rule-count" :v (count rules)})
 
     (log/info "Artifact provided" (count domains) "domains")
     (log/info "Artifact provided" (count doi-prefix-list) "DOI prefixes")
@@ -143,11 +138,9 @@
     (log/info "Add" (count compacted-rules) "new rules")
     (add-rules compacted-rules)
 
-    (evidence-log/log! {
-        :i "a003b" :s agent-name :c "update-rules" :f "send-new-rules" :v (count compacted-rules)})
+    (evidence-log/log! {:i "a003b" :s agent-name :c "update-rules" :f "send-new-rules" :v (count compacted-rules)})
 
-    (evidence-log/log! {
-        :i "a003c" :s agent-name :c "update-rules" :f "remove-old-rules" :v (count old-rule-ids)})
+    (evidence-log/log! {:i "a003c" :s agent-name :c "update-rules" :f "remove-old-rules" :v (count old-rule-ids)})
 
     (log/info "Remove " (count old-rule-ids) "old rules")
     (log/info "Old Rule IDs: " old-rule-ids)
@@ -155,11 +148,7 @@
       (log/info "Done chunk of " (count chunk))
       (remove-rule-ids chunk)))
 
-  (evidence-log/log! {
-        :i "a003d" :s agent-name :c "update-rules" :f "finished"}))
-
-
-
+  (evidence-log/log! {:i "a003d" :s agent-name :c "update-rules" :f "finished"}))
 
 (defn parse-entry
   "Parse a tweet input (JSON String) into an Action.
@@ -170,11 +159,11 @@
     (if (:error parsed)
       (do
         (log/error "Gnip error:" (-> parsed :error :message)
-        nil))
+                   nil))
       (let [; comes in with milliseconds but CED schema prefers non-millisecond version.
             posted-time-str (:postedTime parsed)
             posted-time (clj-time-format/parse input-date-format posted-time-str)
-        
+
             ; URL as posted (removing nils).
             expanded-urls (->> parsed :gnip :urls (keep :expanded_url))
 
@@ -186,7 +175,7 @@
             url (:link parsed unknown-url)
 
             matching-rules (->> parsed :gnip :matching_rules (keep :id))
-            
+
             plaintext-observations [{:type "plaintext"
                                      :input-content (:body parsed)
                                      :sensitive true}]
@@ -194,24 +183,24 @@
                                     {:type "url"
                                      :sensitive false
                                      :input-url url}) urls)
-        
+
             internal-id (tweet-id-from-url url)
             title (str "Tweet " internal-id)]
 
-       {:id (DigestUtils/sha1Hex ^String url)
-        :url url
-        :occurred-at (clj-time-format/unparse date-format posted-time)
-        :extra {:gnip-matching-rules matching-rules}
-        :subj {:title title
+        {:id (DigestUtils/sha1Hex ^String url)
+         :url url
+         :occurred-at (clj-time-format/unparse date-format posted-time)
+         :extra {:gnip-matching-rules matching-rules}
+         :subj {:title title
                ; preserve original time string
-               :issued posted-time-str
-               :author {:url (-> parsed :actor :link)}
-               :original-tweet-url (-> parsed :object :link)
-               :original-tweet-author (-> parsed :object :actor :link)
-               :alternative-id internal-id}
-        :relation-type-id "discusses"
-        :observations (concat plaintext-observations
-                              url-observations)}))))
+                :issued posted-time-str
+                :author {:url (-> parsed :actor :link)}
+                :original-tweet-url (-> parsed :object :link)
+                :original-tweet-author (-> parsed :object :actor :link)
+                :alternative-id internal-id}
+         :relation-type-id "discusses"
+         :observations (concat plaintext-observations
+                               url-observations)}))))
 
 (def timeout-duration
   "Time to wait for a new line before timing out. This should be greater than the rate we expect to get tweets. 
@@ -222,9 +211,8 @@
   [channel url]
   "Send parsed events to the chan and block.
    On exception, log and exit (allowing it to be restarted)"
-  
-  (evidence-log/log! {
-    :i "a0021" :s agent-name :c "twitter-api" :f "connect"})
+
+  (evidence-log/log! {:i "a0021" :s agent-name :c "twitter-api" :f "connect"})
 
   (try
     (let [response (client/get
@@ -232,34 +220,33 @@
                     {:as :stream :basic-auth [(:twitter-gnip-username env) (:twitter-gnip-password env)]})
           stream (:body response)
           lines (line-seq (io/reader stream))]
-        (loop [lines lines]
-          (when lines
-            (let [timeout-ch (timeout timeout-duration)
-                  result-ch (thread (try [(or (first lines) :nil) (rest lines)] (catch java.io.IOException ex (do (log/error "Error getting line from PowerTrack:" (.getMessage ex)) nil))))
-                  [[x xs] chosen-ch] (alts!! [timeout-ch result-ch])]
+      (loop [lines lines]
+        (when lines
+          (let [timeout-ch (timeout timeout-duration)
+                result-ch (thread (try [(or (first lines) :nil) (rest lines)] (catch java.io.IOException ex (do (log/error "Error getting line from PowerTrack:" (.getMessage ex)) nil))))
+                [[x xs] chosen-ch] (alts!! [timeout-ch result-ch])]
 
               ; timeout: x is nil, xs is nil
               ; null from server: x is :nil, xs is rest
               ; data from serer: x is data, xs is rest
-              (cond
+            (cond
                 ; nil from timeout
-                (nil? x) (.close stream)
+              (nil? x) (.close stream)
 
                 ; empty string from API, ignore
-                (clojure.string/blank? x) (recur xs)
+              (clojure.string/blank? x) (recur xs)
 
                 ; :nil, deliberately returned above
-                (= :nil x) (recur xs)
-                :default (let [parsed (parse-entry x)]
-                           (when parsed
-                            (>!! channel parsed))
-                             (recur xs)))))))
+              (= :nil x) (recur xs)
+              :default (let [parsed (parse-entry x)]
+                         (when parsed
+                           (>!! channel parsed))
+                         (recur xs)))))))
     (catch Exception ex (do
-      
-      (evidence-log/log! {
-        :i "a0022" :s agent-name :c "twitter-api" :f "disconnect"})
 
-      (log/info (.getMessage ex))))))
+                          (evidence-log/log! {:i "a0022" :s agent-name :c "twitter-api" :f "disconnect"})
+
+                          (log/info (.getMessage ex))))))
 
 (defn run-loop
   [channel url]
@@ -285,8 +272,7 @@
    Blocks forever."
   []
 
-  (evidence-log/log! {
-    :i "a0023" :s agent-name :c "ingest" :f "start"})
+  (evidence-log/log! {:i "a0023" :s agent-name :c "ingest" :f "start"})
 
   ; Both args ignored.
   (let [url (:twitter-powertrack-endpoint env)]
@@ -298,8 +284,7 @@
    Blocks forever."
   []
 
-  (evidence-log/log! {
-    :i "a0024" :s agent-name :c "process" :f "start"})
+  (evidence-log/log! {:i "a0024" :s agent-name :c "process" :f "start"})
 
   ; Take chunks of inputs, a few tweets per input bundle.
   ; Gather then into a Page of actions.
@@ -310,18 +295,16 @@
     (loop [actions (<!! channel)]
       (log/info "Got a chunk of" (count actions) "actions")
 
-      (evidence-log/log! {
-        :i "a0025" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
+      (evidence-log/log! {:i "a0025" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
 
-      (let [evidence-record (assoc 
-                              (util/build-evidence-record manifest artifact-map)
-                              :pages [{:actions actions}])]
-        
+      (let [evidence-record (assoc
+                             (util/build-evidence-record manifest artifact-map)
+                             :pages [{:actions actions}])]
+
         (util/send-evidence-record manifest evidence-record)
 
         (log/info "Sent a chunk of" (count actions) "actions"))
       (recur (<!! channel)))))
-
 
 (def manifest
   {:agent-name agent-name

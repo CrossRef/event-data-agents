@@ -17,7 +17,7 @@
             [config.core :refer [env]]
             [robert.bruce :refer [try-try-again]]
             [clj-time.format :as clj-time-format]
-  (:gen-class)))
+            (:gen-class)))
 
 (def agent-name "hypothesis-agent")
 (def source-token "8075957f-e0da-405f-9eee-7f35519d7c4c")
@@ -38,7 +38,7 @@
   ; - another that says "this Annotation has this text, which may contain DOIs"
   ; Both or neither may match to zero, one or more matches.
   (let [occurred-at-iso8601 (clj-time-format/unparse date-format (coerce/from-string (:updated item)))]
-        
+
     ; ID is legacy from first version where there was only one kind of action per annotation.
     [{:id (str "hypothesis-" (:id item))
       :url (-> item :links :html)
@@ -46,14 +46,13 @@
       :occurred-at occurred-at-iso8601
       :observations [{:type :url :input-url (-> item :uri)}]
       :extra {}
-      :subj {
-       :json-url (-> item :links :json)
-       :pid (-> item :links :html)
-       :url (-> item :links :incontext)
-       :alternative-id (:id item)
-       :type "annotation"
-       :title (-> item :text)
-       :issued occurred-at-iso8601}}
+      :subj {:json-url (-> item :links :json)
+             :pid (-> item :links :html)
+             :url (-> item :links :incontext)
+             :alternative-id (:id item)
+             :type "annotation"
+             :title (-> item :text)
+             :issued occurred-at-iso8601}}
 
      {:id (str "hypothesis-" (:id item) "-text")
       :url (-> item :links :html)
@@ -61,14 +60,13 @@
       :occurred-at occurred-at-iso8601
       :observations [{:type :plaintext :input-content (-> item :text)}]
       :extra {}
-      :subj {
-       :json-url (-> item :links :json)
-       :pid (-> item :links :html)
-       :url (-> item :links :incontext)
-       :alternative-id (:id item)
-       :type "annotation"
-       :title (-> item :text)
-       :issued occurred-at-iso8601}}]))
+      :subj {:json-url (-> item :links :json)
+             :pid (-> item :links :html)
+             :url (-> item :links :incontext)
+             :alternative-id (:id item)
+             :type "annotation"
+             :title (-> item :text)
+             :issued occurred-at-iso8601}}]))
 
 ; API
 (defn parse-page
@@ -89,43 +87,42 @@
         page (try
 
                (evidence-log/log!
-                 {:i "a0003" :s agent-name :c "hypothesis-api" :f "request"
-                  :r evidence-record-id :v offset})
-               
+                {:i "a0003" :s agent-name :c "hypothesis-api" :f "request"
+                 :r evidence-record-id :v offset})
+
                (try-try-again
-                 {:sleep 30000 :tries 10}
-                 #(let [result (client/get
-                                 api-url
-                                 {:query-params {
-                                   :offset offset
-                                   :limit page-size
-                                   :sort "updated"
-                                   :order "desc"}
-                                  :headers {"User-Agent" util/http-user-agent}})]
- 
+                {:sleep 30000 :tries 10}
+                #(let [result (client/get
+                               api-url
+                               {:query-params {:offset offset
+                                               :limit page-size
+                                               :sort "updated"
+                                               :order "desc"}
+                                :headers {"User-Agent" util/http-user-agent}})]
+
                    (log/info "Fetched page" {:offset offset :limit page-size})
- 
+
                    (evidence-log/log!
-                     {:i "a0004" :s agent-name :c "hypothesis-api" :f "response"
-                      :e (:status result) :r evidence-record-id})
- 
+                    {:i "a0004" :s agent-name :c "hypothesis-api" :f "response"
+                     :e (:status result) :r evidence-record-id})
+
                    (condp = (:status result)
                      200 (parse-page api-url (:body result))
                      404 {:url api-url :actions [] :extra {:after nil :before nil :error "Result not found"}}
-                     
+
                      (do
                        (log/error "Unexpected status code" (:status result) "from" api-url)
                        (log/error "Body of error response:" (:body result))
                        (throw (new Exception "Unexpected status"))))))
- 
+
                (catch Exception ex (do
- 
-                 (evidence-log/log!
-                   {:i "a0005" :s agent-name :c "hypothesis-api" :f "error" :r evidence-record-id})
- 
-                 (log/error "Error fetching" api-url)
-                 (log/error "Exception:" ex)
-                 {:url api-url :actions [] :extra {:error "Failed to retrieve page"}})))]
+
+                                     (evidence-log/log!
+                                      {:i "a0005" :s agent-name :c "hypothesis-api" :f "error" :r evidence-record-id})
+
+                                     (log/error "Error fetching" api-url)
+                                     (log/error "Exception:" ex)
+                                     {:url api-url :actions [] :extra {:error "Failed to retrieve page"}})))]
 
     (assoc base-record :pages [page])))
 
@@ -135,22 +132,22 @@
   "Lazy sequence of pages until we get no more results."
   ([] (fetch-evidence-record-pages 0))
   ([offset]
-    (log/info "fetch page offset" offset)
-    (let [evidence-record-page (fetch-evidence-record-page-throttled offset)
-          actions (-> evidence-record-page :pages first :actions)]
+   (log/info "fetch page offset" offset)
+   (let [evidence-record-page (fetch-evidence-record-page-throttled offset)
+         actions (-> evidence-record-page :pages first :actions)]
 
-      (log/info "Got" (count actions) "actions")
+     (log/info "Got" (count actions) "actions")
 
-      (if (empty? actions)
-        [evidence-record-page]
-        (lazy-seq (cons evidence-record-page
-                        (fetch-evidence-record-pages (+ offset page-size))))))))
+     (if (empty? actions)
+       [evidence-record-page]
+       (lazy-seq (cons evidence-record-page
+                       (fetch-evidence-record-pages (+ offset page-size))))))))
 
 (defn all-action-dates-after?
   "Are all the action dates in the Evidence Record after the given date?"
   [date evidence-record]
   (let [dates (map #(-> % :occurred-at coerce/from-string)
-                    (-> evidence-record :pages first :actions))]
+                   (-> evidence-record :pages first :actions))]
     (every? #(clj-time/after? % date) dates)))
 
 (defn fetch-parsed-evidence-record-pages-after
@@ -180,10 +177,10 @@
   "Main function for Hypothesis agent."
   []
   (checkpoint/run-checkpointed!
-    ["hypothesis" "all-scan"]
-    (clj-time/hours 2) ; Maximum of once every 2 hours.
-    (clj-time/years 5) ; Look back at most 5 years.
-    scan))
+   ["hypothesis" "all-scan"]
+   (clj-time/hours 2) ; Maximum of once every 2 hours.
+   (clj-time/years 5) ; Look back at most 5 years.
+   scan))
 
 (def manifest
   {:agent-name agent-name
