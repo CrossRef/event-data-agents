@@ -16,156 +16,139 @@
             [overtone.at-at :as at-at])
   (:import [java.net URLEncoder]
            [java.util UUID]
-           [org.apache.commons.codec.digest DigestUtils])
-   (:gen-class))
+           [org.apache.commons.codec.digest DigestUtils]
+           [javax.ws.rs.sse SseEventSource])
+  (:gen-class))
 
 (def source-token "36c35e23-8757-4a9d-aacf-345e9b7eb50d")
 (def source-id "wikipedia")
 (def agent-name "wikipedia-agent")
 
 (def stream-url "https://stream.wikimedia.org/v2/stream/recentchange")
-(def
-  action-chunk-size
+
+(def action-chunk-size
   "Number of input actions to batch into events. A value of 100 results in message size of about 150 KB"
   100)
 
 (def action-input-buffer 1000000)
-(def action-chan (delay (chan action-input-buffer (partition-all action-chunk-size))))
 
-; This contains the startup time to begin with.
-; Allows us to measure a timeout for the first event.
-(def last-event-timestamp (atom (clj-time/now)))
+(def action-chan (delay (chan action-input-buffer (partition-all action-chunk-size))))
 
 (declare manifest)
 
 (def date-format
   (:date-time-no-ms clj-time-format/formatters))
 
-(defn parse
+(defn message->action
   "Parse an input into a Percolator Action. Note that an Action ID is not supplied."
   [data]
   (when (= "edit" (:type data))
     (let [canonical-url (-> data :meta :uri)
           encoded-title (->> data :meta :uri (re-find #"^.*?/wiki/(.*)$") second)
           title (:title data)
-
-          action-type (:type data)
-          old-id (-> data :revision :old)
           new-id (-> data :revision :new)
-
-          old-pid (str (:server_url data) "/w/index.php?title=" encoded-title "&oldid=" old-id)
-          new-pid (str (:server_url data) "/w/index.php?title=" encoded-title "&oldid=" new-id)
-
+          version-url (str (:server_url data) "/w/index.php?title=" encoded-title "&oldid=" new-id)
           new-restbase-url (str (:server_url data) "/api/rest_v1/page/html/" encoded-title "/" new-id)
 
           ; normalize format
           timestamp-str (clj-time-format/unparse date-format (clj-time-coerce/from-string (-> data :meta :dt)))]
 
-      {:url new-pid
+      {:url canonical-url
        :occurred-at timestamp-str
        :relation-type-id "references"
-       :subj {
-         :pid new-pid
-         :url canonical-url
-         :title title
-         :api-url new-restbase-url}
+       :subj {:pid canonical-url
+              :url version-url
+              :title title
+              :work_type_id "entry-encyclopedia"
+              :api-url new-restbase-url}
        :observations [{:type :content-url
                        :input-url new-restbase-url
                        ; The Wikipedia robots.txt files prohibit access to the API.
                        ; There are separate terms for the RESTBase API, plus we have specific permission.
                        :ignore-robots true
                        :sensitive true}]
-     :extra-events [
-       {:subj_id old-pid
-        :relation_type_id "is_version_of"
-        :obj_id canonical-url
-        :occurred_at timestamp-str}
-       {:subj_id new-pid
-        :relation_type_id "is_version_of"
-        :obj_id canonical-url
-        :occurred_at timestamp-str}
-       {:subj_id new-pid
-        :relation_type_id "replaces"
-        :obj_id old-pid
-        :occurred_at timestamp-str}]})))
+       :extra-events []})))
 
+(def ignore-wikis
+  "Set of wiki identifiers that we're not interested in. Commons pages don't have references, so ignore them."
+  #{"commonswiki"})
 
-(defn ingest-into-channel
-  [channel]
-  "Send parsed events to the chan and block.
-   On exception, log and exit (allowing it to be restarted)"
-    
-  (evidence-log/log! {
-    :i "a0026" :s agent-name :c "wikipedia-api" :f "connect"})
+(def watchdog-timeout-ms
+  10000)
 
-  (try
-    (let [response (client/get stream-url {:as :stream})]
-      (with-open [reader (io/reader (:body response))]
-        (doseq [line (line-seq reader)]
-          (let [timeout-ch (timeout 1000)
-                result-ch (thread (or line :timeout))
-                [x chosen-ch] (alts!! [timeout-ch result-ch])]
-              ; timeout: x is nil, xs is nil
-              ; null from server: x is :nil, xs is rest
-              ; data from serer: x is data, xs is rest
-              (cond
-                (nil? x) nil
-                (= :timeout x) nil
-                :default
-                    (when (.startsWith x "data:")
-                      (when-let [parsed (parse (json/read-str (.substring x 5) :key-fn keyword))]
-                        (>!! channel parsed))))))))
-                    
-    (catch Exception ex
-      ; Could be SocketException, UnknownHostException or something worse!
-      ; log and exit.
-      (log/error "Error subscribing to stream" (.getMessage ex))
-
-      (evidence-log/log! {
-        :i "a0027" :s agent-name :c "wikipedia-api" :f "disconnect"})
-
-      (.printStackTrace ex))))
-
-(def watchdog-timeout
-  (clj-time/minutes 2))
-
-(defn main-watchdog
-  "Keep an eye on the most recent activity, bomb out if nothing happened."
+(defn ingest-stream
+  "Subscribe to the WC Stream, put data in the input-stream-chan.
+  Blocks until there's a timeout or error."
   []
-  (log/info "Start watchdog")
-  (let [schedule-pool (at-at/mk-pool)]
-  (at-at/every 10000 (fn []
-    (log/info "Check watchdog...")
-    (when (clj-time/before?
-                     @last-event-timestamp
-                     (clj-time/ago watchdog-timeout))
-      (log/error "Input timed out! Last timeout was at" (str @last-event-timestamp) ", longer than" (str watchdog-timeout) "ago")
-      (System/exit 1)))
-    schedule-pool)))
+  (let [client (.build (javax.ws.rs.client.ClientBuilder/newBuilder))
+        target (.target client stream-url)
+        event-source (.build (javax.ws.rs.sse.SseEventSource/target target))
+        last-event-timestamp (atom (System/currentTimeMillis))
+        events-since-last-check (atom 0)
+        wikis-breakdown (atom {})]
+
+    (evidence-log/log! {:i "a0026" :s agent-name :c "wikipedia-api" :f "connect"})
+
+    (def consumer (reify java.util.function.Consumer
+                    (accept [this t]
+                      (reset! last-event-timestamp (System/currentTimeMillis))
+                      (let [data (.readData t)]
+                        (when-not (clojure.string/blank? data)
+                          (try
+                            ; Read JSON, package into an Action.
+                            (let [parsed (json/read-str (.readData t) :key-fn keyword)
+                                  action (message->action parsed)
+                                  wiki-identifier (:wiki parsed)]
+
+                              ; Action may return nil if we're not interested in it.
+                              (when (and action (not (ignore-wikis wiki-identifier)))
+                                (swap! wikis-breakdown #(assoc % wiki-identifier (inc (% wiki-identifier 1))))
+                                (swap! events-since-last-check inc)
+                                (>!! @action-chan action)))
+
+                            (catch Exception e
+                              (do
+                                (log/error "Error reading input" e)
+                                (evidence-log/log! {:i "a003e" :s agent-name :c "ingest" :f "error"})))))))))
+
+    (evidence-log/log! {:i "a0028" :s agent-name :c "ingest" :f "start"})
+
+    (.register event-source ^java.util.function.Consumer consumer)
+    (try
+      (.open event-source)
+
+        ; Block unless we run into a timeout.
+      (loop []
+        (let [num-events @events-since-last-check
+              now (System/currentTimeMillis)
+              diff (- now @last-event-timestamp)]
+
+            ; There may be a little race, but this number is only an indicator.
+          (reset! events-since-last-check 0)
+
+          (log/info "Check timeout. Since last check got" num-events ", most recent" diff "ms ago")
+          (log/debug "Wiki breakdown: " @wikis-breakdown)
+          (reset! wikis-breakdown {})
+
+          (if (> diff watchdog-timeout-ms)
+            (do
+              (log/warn "Timeout reached, closing connection")
+              (.close event-source))
+            (do
+              (Thread/sleep 1000)
+              (recur)))))
+
+      (finally
+        (log/warn "Interrupted. Closing connection.")
+        (.close event-source)))))
 
 (defn main-ingest-stream
-  "Subscribe to the WC Stream, put data in the input-stream-chan."
+  "Ingest RC Stream, reconnecting on error."
   []
-
-
-  (log/info "Start ingest stream!")
   (loop []
-    (evidence-log/log! {
-      :i "a0028" :s agent-name :c "ingest" :f "start"})
-
-    (try
-      (log/info "Starting...")
-      (ingest-into-channel @action-chan)
-    (catch Exception ex (do
-      (log/error "Unhandled exception" (.getMessage ex))
-      (evidence-log/log! {
-        :i "a003e" :s agent-name :c "ingest" :f "error"})))
-    (finally
-      (log/error "Stopped!")
-      (Thread/sleep 1000)))
-
-    (recur))
-    (log/info "Stopped ingest stream."))
+    (ingest-stream)
+    (log/error "Ingest stream exit. Will reconnect.")
+    (recur)))
 
 (defn main-send
   "Take chunks of Actions from the action-chan, assemble into Evidence Records,
@@ -175,8 +158,7 @@
   (loop []
     (try
 
-      (evidence-log/log! {
-        :i "a0029" :s agent-name :c "process" :f "start"})
+      (evidence-log/log! {:i "a0029" :s agent-name :c "process" :f "start"})
 
       ; Take chunks of inputs, a few tweets per input bundle.
       ; Gather then into a Page of actions.
@@ -187,12 +169,11 @@
         (loop [actions (<!! channel)]
           (log/info "Got a chunk of" (count actions) "actions")
 
-          (evidence-log/log! {
-            :i "a0030" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
-          
-          (let [evidence-record (assoc 
-                                  (util/build-evidence-record manifest artifact-map)
-                                  :pages [{:actions actions}])]
+          (evidence-log/log! {:i "a0030" :s agent-name :c "process" :f "got-chunk" :v (count actions)})
+
+          (let [evidence-record (assoc
+                                 (util/build-evidence-record manifest artifact-map)
+                                 :pages [{:actions actions}])]
 
             (util/send-evidence-record manifest evidence-record)
 
@@ -200,14 +181,13 @@
           (recur (<!! channel))))
 
       (catch Exception ex (do
-        (log/error "Unhandled exception" (.getMessage ex))
-        (evidence-log/log! {
-          :i "a003f" :s agent-name :c "process" :f "error"})))
+                            (log/error "Unhandled exception sending:" (.getMessage ex))
+                            (evidence-log/log! {:i "a003f" :s agent-name :c "process" :f "error"})))
       (finally
         (log/error "Stopped!")
         (Thread/sleep 1000)))
 
-      (recur)))
+    (recur)))
 
 (def manifest
   {:agent-name agent-name
@@ -215,5 +195,5 @@
    :license util/cc-0
    :source-token source-token
    :schedule []
-   :daemons [main-ingest-stream main-watchdog main-send]})
+   :daemons [main-ingest-stream main-send]})
 

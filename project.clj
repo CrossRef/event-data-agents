@@ -25,8 +25,11 @@
                  [throttler "1.0.0"]
                  [yogthos/config "0.8"]
                  [overtone/at-at "1.2.0"]
-                 [twitter-api "1.8.0"]]
+                 [twitter-api "1.8.0"]
+                 [org.glassfish.jersey.media/jersey-media-sse "2.26"]
+                 [org.glassfish.jersey.inject/jersey-hk2 "2.26"]]
   :jvm-opts ["-Duser.timezone=UTC" "-Xmx3G"]
+  :plugins [[lein-cljfmt "0.5.7"]]
   :main ^:skip-aot event-data-agents.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})
