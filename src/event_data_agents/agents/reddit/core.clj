@@ -236,22 +236,24 @@
   []
   (log/info "Start crawl all Domains on Reddit at" (str (clj-time/now)))
 
-  (evidence-log/log! {:i "a0011" :s agent-name :c "scan" :f "start"}) (let [artifact-map (util/fetch-artifact-map manifest ["domain-list"])
-                                                                            [domain-list-url domain-list] (artifact-map "domain-list")
-                                                                            domains (clojure.string/split domain-list #"\n")
+  (evidence-log/log! {:i "a0011" :s agent-name :c "scan" :f "start"})
+
+  (let [artifact-map (util/fetch-artifact-map manifest ["domain-list"])
+        [domain-list-url domain-list] (artifact-map "domain-list")
+        domains (clojure.string/split domain-list #"\n")
 
         ; Take 5 hours worth of pages to make sure we cover everything. The Percolator will dedupe.
-                                                                            num-domains (count domains)
+        num-domains (count domains)
 
-                                                                            results (pmap (fn [domain]
-                                                                                            (checkpoint/run-checkpointed!
-                                                                                             ["reddit" "domain-query" domain]
-                                                                                             (clj-time/hours 1) ; Do each search at most every hour.
-                                                                                             (clj-time/years 5) ; Don't page back past 5 years.
-                                                                                             #(check-domain domain artifact-map %)))
-                                                                                          domains)]
+        results (pmap (fn [domain]
+                        (checkpoint/run-checkpointed!
+                         ["reddit" "domain-query" domain]
+                         (clj-time/hours 1) ; Do each search at most every hour.
+                         (clj-time/years 5) ; Don't page back past 5 years.
+                         #(check-domain domain artifact-map %)))
+                      domains)]
 
-                                                                        (dorun results))
+    (dorun results))
 
   (evidence-log/log! {:i "a0012" :s agent-name :c "scan" :f "finish"})
 
