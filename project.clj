@@ -1,4 +1,4 @@
-(defproject event-data-agents "1.1.8"
+(defproject event-data-agents "1.1.9"
   :description "Crossref Event Data Agents"
   :url "http://eventdata.crossref.org"
   :license {:name "The MIT License (MIT)"
@@ -17,6 +17,8 @@
                  [org.clojure/core.async "0.2.391"]
                  [org.clojure/data.csv "0.1.4"]
                  [org.clojure/data.json "0.2.6"]
+                 [org.clojure/data.xml "0.0.8"]
+                 [org.clojure/data.zip "0.1.2"]
                  [org.clojure/tools.logging "0.3.1"]
                  [org.clojure/tools.nrepl "0.2.12"]
                  [org.jsoup/jsoup "1.10.1"]

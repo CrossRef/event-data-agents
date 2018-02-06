@@ -56,7 +56,13 @@
       (log/info "Add schedule" function "with delay" (str delay-period))
       (at-at/interspaced
        (clj-time/in-millis delay-period)
-       function schedule-pool)))
+       #(try
+         (function)
+         (catch Exception e
+          (do
+            (log/error "Exception running " (:agent-name manifest))
+            (.printStackTrace e))))
+        schedule-pool)))
 
   (log/info "Finished setting up scheduler."))
 
