@@ -1,3 +1,4 @@
+; (with-open [feed (:body (client/get feed-url {:socket-timeout 10000 :conn-timeout 10000 :as :stream}))] (let [reader (new XmlReader feed)]  (actions-from-xml-reader "XYZ" feed-url reader)))
 (ns event-data-agents.agents.newsfeed.core
   "Process every post that appears in a news feed.
 
@@ -6,6 +7,7 @@
    Check each newsfeed no more than once per C."
 
   (:require [event-data-agents.util :as util]
+            [clj-http.client :as client]
             [event-data-agents.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [event-data-common.url-cleanup :as url-cleanup]
@@ -107,7 +109,8 @@
      {:i "a0009" :s agent-name :c "remote-newsfeed" :f "request" :u feed-url :r evidence-record-id})
 
     (try
-      (let [reader (new XmlReader (new URL feed-url))
+    (with-open [feed (:body (client/get feed-url {:socket-timeout 10000 :conn-timeout 10000 :as :stream}))]
+      (let [reader (new XmlReader feed)
             actions (actions-from-xml-reader evidence-record-id feed-url reader)]
 
         ; Parse succeeded.
@@ -122,7 +125,7 @@
 
         (assoc base-record
           ; One page of actions.
-               :pages [{:actions actions}]))
+               :pages [{:actions actions}])))
 
       ; e.g. com.rometools.rome.io.ParsingFeedException
       (catch Exception ex
