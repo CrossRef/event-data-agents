@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<ObjectList>
+  <Article>
+    <Id>1012</Id>
+    <PubmedId>15150602</PubmedId>
+    <Doi>10.1038/sj.bjc.6601743</Doi>
+    <Title>Epidermodysplasia verruciformis human papillomavirus types and carcinoma of the conjunctiva: a pilot study.</Title>
+    <Url>https://f1000.com/prime/1012</Url>
+    <RecommendationIDs>
+      <RecommendationID>458502</RecommendationID>
+    </RecommendationIDs>
+    <EvaluatorList>
+      <EvaluatingGroup>
+        <Evaluator>Stephen Gichuhi, Ophthalmology / Clinical Epidemiology Unit, University of Nairobi, Kenya</Evaluator>
+      </EvaluatingGroup>
+    </EvaluatorList>
+    <RecommendationDates>
+      <RecommendationDate>2005-11-15</RecommendationDate>
+    </RecommendationDates>
+    <RecommendationDOIs>
+      <RecommendationDOI>10.3410/f.1012.458502</RecommendationDOI>
+    </RecommendationDOIs>
+  </Article>
+  <Article>
+    <Id>1018</Id>
+    <PubmedId>15919819</PubmedId>
+    <Doi>10.1073/pnas.0503069102</Doi>
+    <Title>Cardiac implications of increased arterial entry and reversible 24-h central and peripheral norepinephrine levels in melancholia.</Title>
+    <Url>https://f1000.com/prime/1018</Url>
+    <RecommendationIDs>
+      <RecommendationID>458508</RecommendationID>
+      <RecommendationID>466576</RecommendationID>
+    </RecommendationIDs>
+    <EvaluatorList>
+      <EvaluatingGroup>
+        <Evaluator>Robert Carney, Department of Psychiatry, Washington University School of Medicine, USA</Evaluator>
+      </EvaluatingGroup>
+      <EvaluatingGroup>
+        <Evaluator>Israel Liberzon, Department of Psychiatry, University of Michigan, USA</Evaluator>
+      </EvaluatingGroup>
+    </EvaluatorList>
+    <RecommendationDates>
+      <RecommendationDate>2005-11-15</RecommendationDate>
+      <RecommendationDate>2006-02-03</RecommendationDate>
+    </RecommendationDates>
+    <RecommendationDOIs>
+      <RecommendationDOI>10.3410/f.1018.458508</RecommendationDOI>
+      <RecommendationDOI>10.3410/f.1018.466576</RecommendationDOI>
+    </RecommendationDOIs>
+  </Article>
+</ObjectList>

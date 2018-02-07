@@ -29,6 +29,7 @@ Schedule
  - stackexchange
  - twitter (update rules on schedule)
  - carberry (FOR TESTING ONLY!)
+ - f1000 
 
 Daemon
 
@@ -43,7 +44,6 @@ The following environment variables must be set:
  - `AGENT_CHECKPOINT_S3_KEY`
  - `AGENT_CHECKPOINT_S3_REGION_NAME`
  - `AGENT_CHECKPOINT_S3_SECRET`
- - `GLOBAL_ARTIFACT_URL_BASE`
  - `GLOBAL_ARTIFACT_URL_BASE`, e.g. https://artifact.eventdata.crossref.org
  - `GLOBAL_JWT_SECRETS`
  - `GLOBAL_KAFKA_BOOTSTRAP_SERVERS`
@@ -55,3 +55,5 @@ The following environment variables must be set:
  - `TWITTER_GNIP_RULES_URL`
  - `TWITTER_GNIP_USERNAME`
  - `TWITTER_POWERTRACK_ENDPOINT`
+ - `F1000_DUMP_PATH`
+
