@@ -13,7 +13,9 @@
             [clojure.tools.logging :as log]
             [clojure.java.io :as io])
   (:import [java.util UUID]
-           [org.apache.commons.codec.digest DigestUtils])
+           [java.io File]
+           [org.apache.commons.codec.digest DigestUtils]
+           [java.util.zip GZIPInputStream])
   (:gen-class))
 
 (def source-token "45a1ef76-4f43-4cdc-9ba8-5a6ad01cc231")
@@ -150,12 +152,10 @@
 
   (evidence-log/log! {:i "a003d" :s agent-name :c "update-rules" :f "finished"}))
 
-(defn parse-entry
-  "Parse a tweet input (JSON String) into an Action.
+(defn entry->action
+  "Parse a tweet input (keyword-keyed parsed JSON String) into an Action.
    On input error log and return nil."
-  [input-string]
-  (let [parsed (json/read-str input-string :key-fn keyword)]
-
+  [parsed]
     (if (:error parsed)
       (do
         (log/error "Gnip error:" (-> parsed :error :message)
@@ -199,8 +199,8 @@
                 :original-tweet-author (-> parsed :object :actor :link)
                 :alternative-id internal-id}
          :relation-type-id "discusses"
-         :observations (concat plaintext-observations
-                               url-observations)}))))
+         :observations (doall (concat plaintext-observations
+                                      url-observations))})))
 
 (def timeout-duration
   "Time to wait for a new line before timing out. This should be greater than the rate we expect to get tweets. 
@@ -238,7 +238,7 @@
 
                 ; :nil, deliberately returned above
               (= :nil x) (recur xs)
-              :default (let [parsed (parse-entry x)]
+              :default (let [parsed (entry->action (json/read-str x :key-fn keyword))]
                          (when parsed
                            (>!! channel parsed))
                          (recur xs)))))))
@@ -305,6 +305,31 @@
 
         (log/info "Sent a chunk of" (count actions) "actions"))
       (recur (<!! channel)))))
+
+(defn main-scan-directory
+  "Scan a directory of gzipped Gnip messages. This is the format returned by one-off manual requests to GNIP.
+   Each file is a Gzipped sequence of JSON lines."
+  [dir-path output-path]
+  (let [files (filter #(.isFile %) (file-seq (io/file dir-path)))
+        parsed (map )
+        actions (mapcat
+                  (fn [file]
+                    (try
+                      (with-open [reader (io/reader (GZIPInputStream. (io/input-stream file)))]
+                        (doall
+                          (map
+                            #(entry->action (json/read-str % :key-fn keyword))
+                            (line-seq reader))))
+                      (catch Exception ex 
+                        (do (log/error "Can't read" file "as GZIPped JSON" (.printStackTrace ex))
+                          []))))
+                  files)
+        chunks (partition-all action-chunk-size actions)]
+    (doseq [chunk chunks]
+      (let [evidence-record (assoc
+                             (util/build-evidence-record manifest {})
+                             :pages [{:actions actions}])]
+        (util/send-evidence-record manifest evidence-record)))))
 
 (def manifest
   {:agent-name agent-name

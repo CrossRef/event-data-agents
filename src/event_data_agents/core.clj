@@ -31,5 +31,8 @@
       "start-schedule" (agents/start-schedule schedule-pool agent-names)
       "run-schedule-once" (agents/run-schedule-once agent-names)
       "run-daemons" (agents/run-daemons agent-names)
+
+      ; Special one-offs.
+      "run-twitter-ingest-directory" (event-data-agents.agents.twitter.core/main-scan-directory (nth args 1) (nth args 2))
       (do (log/error "Didn't recognise command" command)
           (System/exit 1)))))
