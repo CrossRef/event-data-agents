@@ -33,6 +33,6 @@
       "run-daemons" (agents/run-daemons agent-names)
 
       ; Special one-offs.
-      "run-twitter-ingest-directory" (event-data-agents.agents.twitter.core/main-scan-directory (nth args 1) (nth args 2))
+      "run-twitter-ingest-directory" (event-data-agents.agents.twitter.core/main-scan-directory (nth args 1))
       (do (log/error "Didn't recognise command" command)
           (System/exit 1)))))

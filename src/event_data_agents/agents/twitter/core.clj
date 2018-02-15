@@ -156,10 +156,17 @@
   "Parse a tweet input (keyword-keyed parsed JSON String) into an Action.
    On input error log and return nil."
   [parsed]
-    (if (:error parsed)
+    (cond
+      (:error parsed)
       (do
         (log/error "Gnip error:" (-> parsed :error :message)
-                   nil))
+        nil))
+
+      (:info parsed)
+      (do
+        (log/info "Gnip info:" (:info parsed)))
+
+      :default
       (let [; comes in with milliseconds but CED schema prefers non-millisecond version.
             posted-time-str (:postedTime parsed)
             posted-time (clj-time-format/parse input-date-format posted-time-str)
@@ -309,27 +316,34 @@
 (defn main-scan-directory
   "Scan a directory of gzipped Gnip messages. This is the format returned by one-off manual requests to GNIP.
    Each file is a Gzipped sequence of JSON lines."
-  [dir-path output-path]
-  (let [files (filter #(.isFile %) (file-seq (io/file dir-path)))
-        parsed (map )
-        actions (mapcat
-                  (fn [file]
-                    (try
-                      (with-open [reader (io/reader (GZIPInputStream. (io/input-stream file)))]
-                        (doall
-                          (map
-                            #(entry->action (json/read-str % :key-fn keyword))
-                            (line-seq reader))))
-                      (catch Exception ex 
-                        (do (log/error "Can't read" file "as GZIPped JSON" (.printStackTrace ex))
-                          []))))
-                  files)
-        chunks (partition-all action-chunk-size actions)]
-    (doseq [chunk chunks]
-      (let [evidence-record (assoc
-                             (util/build-evidence-record manifest {})
-                             :pages [{:actions actions}])]
-        (util/send-evidence-record manifest evidence-record)))))
+  [dir-path]
+  (let [files (filter #(.isFile %) (file-seq (io/file dir-path)))]
+    ; Each file can result in quite a lot of data, so address them one by one.
+    ; Alternative is trying to create a lazy seq of actions over files, which means buffering each file's
+    ; worth of data before closing the file handle.
+    (doseq [file (drop 1 files)]
+      (log/info "Read" file)
+      (try
+        (with-open [reader (io/reader (GZIPInputStream. (io/input-stream file)))]
+          (let [lines (line-seq reader)
+                parsed-lines (map #(json/read-str % :key-fn keyword) lines)
+                ; Can return nil if the message didn't contain data, e.g. an :info message. 
+                ; Filter these out.
+                actions (keep entry->action parsed-lines)
+                chunks (partition-all action-chunk-size actions)]
+
+            (doseq [action-chunk chunks]
+              (let [evidence-record (assoc
+                                     (util/build-evidence-record manifest {})
+                                     :pages [{:actions action-chunk}])]
+                (util/send-evidence-record manifest evidence-record)
+                (log/info "Send" (:id evidence-record))))))
+
+      (catch Exception ex 
+        (do (log/error "Can't read" file "as GZIPped JSON" (.printStackTrace ex))))))))
+
+
+
 
 (def manifest
   {:agent-name agent-name
