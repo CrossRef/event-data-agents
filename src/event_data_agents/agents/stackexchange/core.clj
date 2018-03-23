@@ -13,7 +13,7 @@
         Checkpointing will ensure that sites aren't queried more often than neccesary."
 
   (:require [event-data-agents.util :as util]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [event-data-common.url-cleanup :as url-cleanup]
             [crossref.util.doi :as cr-doi]

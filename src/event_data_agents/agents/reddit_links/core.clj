@@ -5,7 +5,7 @@
   Continually loop over the subreddit list.
   Check each subreddit no more than once per C."
   (:require [event-data-agents.util :as util]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [event-data-agents.agents.reddit.core]
             [event-data-common.evidence-log :as evidence-log]
             [event-data-common.url-cleanup :as url-cleanup]

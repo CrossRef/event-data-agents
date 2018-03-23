@@ -8,7 +8,7 @@
 
   (:require [event-data-agents.util :as util]
             [clj-http.client :as client]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [event-data-common.url-cleanup :as url-cleanup]
             [clojure.tools.logging :as log]

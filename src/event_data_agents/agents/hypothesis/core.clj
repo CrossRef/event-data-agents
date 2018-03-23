@@ -4,7 +4,7 @@
    Schedule and checkpointing:
    Connect to Hypothes.is API every S hours and get all results since the last run."
   (:require [event-data-agents.util :as util]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [crossref.util.doi :as cr-doi]
             [clojure.tools.logging :as log]

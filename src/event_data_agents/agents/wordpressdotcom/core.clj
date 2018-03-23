@@ -5,7 +5,7 @@
    Continually loop over the domain list.
    Search for each domain no more than once per C."
   (:require [event-data-agents.util :as util]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [clojure.tools.logging :as log]
             [clj-time.core :as clj-time]
             [clj-time.format :as clj-time-format]

@@ -12,7 +12,7 @@
    - Parse the dump from F1000. Filter out those reviews published since the last run date."
   (:require [event-data-agents.util :as util]
             [crossref.util.doi :as cr-doi]
-            [event-data-agents.checkpoint :as checkpoint]
+            [event-data-common.checkpoint :as checkpoint]
             [event-data-common.evidence-log :as evidence-log]
             [clojure.tools.logging :as log]
             [clj-time.coerce :as coerce]
