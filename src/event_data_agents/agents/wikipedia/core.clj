@@ -70,8 +70,11 @@
        :extra-events []})))
 
 (def ignore-wikis
-  "Set of wiki identifiers that we're not interested in. Commons pages don't have references, so ignore them."
-  #{"commonswiki"})
+  "Set of wiki identifiers that we're not interested in."
+  #{; Commons pages don't have references, so ignore them.
+    "commonswiki"
+    ; Wikidata uses a specific JSON format, which we can't yet parse. 
+    "wikidatawiki"})
 
 (def watchdog-timeout-ms
   10000)
