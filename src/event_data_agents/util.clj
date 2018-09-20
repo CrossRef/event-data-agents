@@ -34,7 +34,7 @@
   (delay
    (KafkaProducer.
     {"bootstrap.servers" (:global-kafka-bootstrap-servers env)
-     "acks" "all"
+     "acks" "1"
      "retries" (int 5)
      "key.serializer" "org.apache.kafka.common.serialization.StringSerializer"
      "value.serializer" "org.apache.kafka.common.serialization.StringSerializer"})))
