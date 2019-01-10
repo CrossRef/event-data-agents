@@ -31,9 +31,24 @@
 (def input-date-format
   (:date-time clj-time-format/formatters))
 
-(defn tweet-id-from-url
+(defn tweet-url->tweet-id
   [url]
   (re-find #"[\d]+$" url))
+
+(defn tweet-url->uri
+  "Convert a Twitter-supplied URL to a URI that's approved for redistribution."
+  [url]
+  (some->> url tweet-url->tweet-id (str "twitter://status?id=")))
+
+
+(defn actor-url->username
+  [url]
+  (some->> url (re-find #"/([^/]+)$") second))
+
+(defn actor-url->uri
+  "Convert a Twitter-supplied actor URL to a URI that's approved for redistribution."
+  [url]
+  (some->> url actor-url->username (str "twitter://user?screen_name=")))
 
 ; http://support.gnip.com/apis/powertrack2.0/rules.html
 (def max-rule-length 2048)
@@ -180,6 +195,7 @@
             urls (set (concat expanded-urls original-urls))
 
             url (:link parsed unknown-url)
+            uri (tweet-url->uri url)
 
             matching-rules (->> parsed :gnip :matching_rules (keep :id))
 
@@ -191,19 +207,20 @@
                                      :sensitive false
                                      :input-url url}) urls)
 
-            internal-id (tweet-id-from-url url)
+            internal-id (tweet-url->tweet-id url)
             title (str "Tweet " internal-id)]
 
+        ; Use the URL from Twitter for the Action ID (deduplication)
         {:id (DigestUtils/sha1Hex ^String url)
-         :url url
+         :url uri
          :occurred-at (clj-time-format/unparse date-format posted-time)
          :extra {:gnip-matching-rules matching-rules}
          :subj {:title title
                ; preserve original time string
                 :issued posted-time-str
-                :author {:url (-> parsed :actor :link)}
-                :original-tweet-url (-> parsed :object :link)
-                :original-tweet-author (-> parsed :object :actor :link)
+                :author {:url (-> parsed :actor :link actor-url->uri)}
+                :original-tweet-url (-> parsed :object :link tweet-url->uri)
+                :original-tweet-author (-> parsed :object :actor :link actor-url->uri)
                 :alternative-id internal-id}
          :relation-type-id "discusses"
          :observations (doall (concat plaintext-observations
